@@ -1,0 +1,12 @@
+[package]
+name = "hpm-wasapi"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "hpm-wasapi"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anyhow = "1"
+wasapi = "0.19"

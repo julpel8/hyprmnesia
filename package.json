@@ -1,0 +1,52 @@
+{
+  "name": "hyprmnesia",
+  "version": "0.7.0",
+  "description": "Personal memory of everything you've seen and heard, queryable via MCP.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "hpm": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "start": "bun run src/cli.ts start",
+    "build": "bun run build.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/frontend/tsconfig.json",
+    "test": "bun test src scripts",
+    "sync-version": "bun run scripts/sync-version.ts",
+    "package": "bun run scripts/package.ts",
+    "checksums": "bun run scripts/checksums.ts",
+    "release-notes": "bun run scripts/release-notes.ts",
+    "format": "biome format --write",
+    "lint": "biome lint",
+    "lint:fix": "biome lint --write",
+    "check": "biome check",
+    "check:fix": "biome check --write",
+    "knip": "knip",
+    "knip:fix": "knip --fix",
+    "build:ui": "bun run scripts/build-ui.ts"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "get-windows": "^9.3.0",
+    "react": "^19.2.8",
+    "screenshot-desktop": "^1.15.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19",
+    "knip": "^6.14.1",
+    "react-dom": "^19.2.8"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "trustedDependencies": [
+    "ffmpeg-static",
+    "get-windows"
+  ]
+}

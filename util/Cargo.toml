@@ -1,0 +1,8 @@
+[package]
+name = "hpm-util"
+version = "0.7.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+serde_json = "1"

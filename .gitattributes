@@ -1,0 +1,24 @@
+# Force LF line endings for tracked text files on all platforms so that
+# scripts like `sync-version --check` see identical content on Windows CI.
+* text=auto eol=lf
+
+# Binary files: never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.dylib binary
+*.so binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.bin binary

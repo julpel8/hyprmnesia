@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/knip/schema.json",
+  "includeEntryExports": true,
+  "entry": ["scripts/*.ts", "src/ui/frontend/main.tsx!"],
+  "ignoreBinaries": ["tar"],
+  "ignoreExportsUsedInFile": { "interface": true }
+}

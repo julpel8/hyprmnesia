@@ -1,0 +1,12 @@
+{
+  // The frontend runs in the browser, so it needs DOM libs and react-dom types
+  // rather than the root's bun/ESNext-only environment. `bun run typecheck` runs
+  // this in addition to the root project.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["react", "react-dom"]
+  },
+  "include": ["./**/*.ts", "./**/*.tsx"],
+  "exclude": ["../frontend_dist"]
+}

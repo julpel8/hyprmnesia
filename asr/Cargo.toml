@@ -1,0 +1,34 @@
+[package]
+name = "hpm-asr"
+version = "0.7.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+# Parakeet stays on audiopipe (ONNX/ort). Whisper now runs on CTranslate2 via
+# ct2rs (the same engine as faster-whisper), so the audiopipe `whisper` feature —
+# and the whisper.cpp/whisper-rs fork it pulled in — is gone.
+audiopipe = { git = "https://github.com/divanshu-go/audiopipe.git", branch = "main", default-features = false, features = ["parakeet"] }
+base64 = "0.22"
+# CTranslate2 Whisper backend. CPU-only (`ruy`); the `whisper` feature pulls the
+# HF tokenizer and mel feature extractor. CTranslate2 itself is built from
+# vendored sources via CMake at compile time — no Python, no system libs beyond
+# the C++ toolchain whisper.cpp already required.
+ct2rs = { version = "0.9", default-features = false, features = ["whisper", "ruy"] }
+# Whisper model download/cache, mirroring hpm-embed. 0.4 follows Hugging Face's
+# relative redirect Location headers; 0.3 only handled absolute ones and fails
+# every uncached download with a bare "download config.json" error.
+hf-hub = "0.4"
+hpm-util = { path = "../util" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+webrtc-vad = "0.4"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries"] }
+
+[target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries", "copy-dylibs"] }
+
+[target.'cfg(all(target_os = "windows", target_arch = "aarch64"))'.dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic"] }
