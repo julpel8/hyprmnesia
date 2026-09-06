@@ -682,16 +682,17 @@ fn legacy_autostart_file() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("autostart").join("hyprmnesia-tray.desktop"))
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn startup_file() -> Option<PathBuf> {
-    if cfg!(target_os = "macos") {
-        return home_dir().map(|home| {
-            home.join("Library")
-                .join("LaunchAgents")
-                .join("com.hyprmnesia.tray.plist")
-        });
-    }
+    home_dir().map(|home| {
+        home.join("Library")
+            .join("LaunchAgents")
+            .join("com.hyprmnesia.tray.plist")
+    })
+}
 
+#[cfg(target_os = "linux")]
+fn startup_file() -> Option<PathBuf> {
     let config_home = dirs::config_dir()?;
     Some(
         config_home
