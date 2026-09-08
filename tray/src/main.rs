@@ -342,7 +342,9 @@ fn refresh_menu(
         let _ = menu.status.set_text(&label);
         let _ = menu.start.set_enabled(!status.running);
         let _ = menu.stop.set_enabled(status.running);
-        let _ = menu.mic.set_text(switch_label("Mic capture", status.capture.mic));
+        let _ = menu
+            .mic
+            .set_text(switch_label("Mic capture", status.capture.mic));
         let _ = menu
             .system_audio
             .set_text(switch_label("System audio", status.capture.system));
