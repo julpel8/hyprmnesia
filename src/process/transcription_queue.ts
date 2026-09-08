@@ -105,6 +105,7 @@ export class TranscriptionQueue {
         text,
         engine: segment.engine,
         transcribe_ms: segment.transcribeMs,
+        role: segment.role,
       })
     } catch (err) {
       this.events.publish({
@@ -128,10 +129,14 @@ export class TranscriptionQueue {
       text_len: text.length,
       transcribe_ms: segment.transcribeMs,
       engine: segment.engine,
+      role: segment.role,
     })
 
     // Compatibility event for existing log consumers that expect final
-    // chunk text on `transcribed`.
+    // chunk text on `transcribed`. It carries no role, and consumers key it by
+    // chunk id, so only the primary transcript is published here; the compare
+    // engine is visible on `transcription_segment` alone.
+    if (segment.role !== 'primary') return
     this.events.publish({
       type: 'transcribed',
       source: segment.source,

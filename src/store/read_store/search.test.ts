@@ -88,3 +88,64 @@ test('search returns transcript segments via FTS5 fallback', () => {
   expect(results.map((r) => r.id)).toContain(segId)
   read.close()
 })
+
+test('a compare segment is stored and recalled but stays out of chunk text and search', () => {
+  const { dbPath, store } = freshStore()
+  const chunkId = randomUUIDv7()
+  const now = Date.now()
+  store.insert({
+    id: chunkId,
+    kind: 'audio_mic',
+    at: now,
+    start_at: now,
+    end_at: now,
+    blob: '/tmp/a.wav',
+    bytes: 10,
+    text: '',
+    capture_ms: 1,
+    audio: { engine: 'parakeet', device: 'default', sample_rate: 16000, chunk_ms: 5000 },
+  })
+  const primaryId = randomUUIDv7()
+  const compareId = randomUUIDv7()
+  store.insertTranscriptSegment({
+    id: primaryId,
+    chunk_id: chunkId,
+    source: 'mic',
+    start_at: now,
+    end_at: now + 1000,
+    text: 'the primary engine heard parsnips',
+    engine: 'parakeet:parakeet-tdt-0.6b-v3',
+    transcribe_ms: 5,
+  })
+  store.insertTranscriptSegment({
+    id: compareId,
+    chunk_id: chunkId,
+    source: 'mic',
+    start_at: now,
+    end_at: now + 1000,
+    text: 'the second engine heard turnips',
+    engine: 'whisper:whisper-small',
+    transcribe_ms: 9,
+    role: 'compare',
+  })
+  // Only the primary transcript is queued for embedding.
+  expect(
+    store.pendingEmbeddings('segment', 'multilingual-e5-small', 10).map((row) => row.id),
+  ).toEqual([primaryId])
+  store.close()
+
+  const read = new HyprmnesiaReadStore(dbPath)
+  // The compare engine's word is nowhere in search; the primary's is.
+  expect(read.search('turnips', { mode: 'lexical' })).toEqual([])
+  expect(read.search('parsnips', { mode: 'lexical' }).map((r) => r.id)).toContain(primaryId)
+
+  const recalled = read.recall(chunkId, false)
+  // Both takes come back for display, and the chunk's own text holds one of them.
+  expect(recalled.chunk?.segments.map((segment) => segment.role).sort()).toEqual([
+    'compare',
+    'primary',
+  ])
+  expect(recalled.chunk?.text).toBe('the primary engine heard parsnips')
+  expect(recalled.chunk?.segment_count).toBe(1)
+  read.close()
+})

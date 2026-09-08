@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dir, '..')
-const CRATES = ['tray', 'ocr', 'asr', 'sck', 'util'] as const
+const CRATES = ['tray', 'asr', 'util'] as const
 
 function readText(path: string): string {
   return readFileSync(path, 'utf8')
@@ -36,7 +36,6 @@ function refreshCargoLock(): void {
   const result = spawnSync('cargo', ['metadata', '--format-version', '1'], {
     cwd: ROOT,
     stdio: 'ignore',
-    shell: process.platform === 'win32',
   })
   if (result.status !== 0) {
     throw new Error('failed to refresh Cargo.lock via cargo metadata')

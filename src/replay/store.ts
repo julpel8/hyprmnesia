@@ -65,6 +65,9 @@ export interface ReplaySegment {
   offset_end_ms: number
   text: string
   engine: string
+  // 'compare' segments are the optional second ASR engine's transcript of the
+  // same speech. Replay shows them beside the primary one.
+  role: 'primary' | 'compare'
   transcribe_ms: number
 }
 
@@ -179,6 +182,7 @@ function toReplaySegment(row: SegmentRow, from: number, durationMs: number): Rep
     offset_end_ms: clippedOffsetEnd(row.end_at, from, durationMs),
     text: row.text,
     engine: row.engine,
+    role: row.role ?? 'primary',
     transcribe_ms: row.transcribe_ms,
   }
 }

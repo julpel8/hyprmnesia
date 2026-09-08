@@ -1,13 +1,13 @@
-import type { EngineConfig } from '../../config'
+import type { EngineConfig, TranscriptionConfig } from '../../config'
 import type { EventBus } from '../../core/events'
-import type { TranscriptionEngine } from '../types'
+import type { TranscriptionEngine, TranscriptionRole } from '../types'
+import { DualTranscription } from './dual'
 import {
   type AsrEngineFamily,
   type AsrOptions,
   NativeAsrTranscription,
   normalizeAsrModel,
 } from './native_asr'
-import { NoopTranscription } from './noop'
 
 function liveOptionsFrom(value: unknown): AsrOptions['live'] {
   if (!value || typeof value !== 'object') return undefined
@@ -23,7 +23,11 @@ function liveOptionsFrom(value: unknown): AsrOptions['live'] {
   }
 }
 
-function asrOptionsFrom(family: AsrEngineFamily, opts: Record<string, unknown>): AsrOptions {
+function asrOptionsFrom(
+  family: AsrEngineFamily,
+  opts: Record<string, unknown>,
+  live: AsrOptions['live'],
+): AsrOptions {
   return {
     model: normalizeAsrModel(family, opts.model),
     // Parakeet is multilingual without a language hint; only Whisper takes one.
@@ -34,20 +38,47 @@ function asrOptionsFrom(family: AsrEngineFamily, opts: Record<string, unknown>):
     // compute_type only applies to the Whisper (CTranslate2) backend.
     compute_type:
       family === 'whisper' && typeof opts.compute_type === 'string' ? opts.compute_type : undefined,
-    live: liveOptionsFrom(opts.live),
+    live,
   }
 }
 
-export function makeTranscription(cfg: EngineConfig, events?: EventBus): TranscriptionEngine {
+function makeEngine(
+  cfg: EngineConfig,
+  live: AsrOptions['live'],
+  role: TranscriptionRole,
+  events?: EventBus,
+): TranscriptionEngine {
   const opts = cfg.options ?? {}
   switch (cfg.engine) {
-    case 'noop':
-      return new NoopTranscription()
     case 'whisper':
-      return new NativeAsrTranscription('whisper', asrOptionsFrom('whisper', opts), events)
+      return new NativeAsrTranscription(
+        'whisper',
+        asrOptionsFrom('whisper', opts, live),
+        events,
+        role,
+      )
     case 'parakeet':
-      return new NativeAsrTranscription('parakeet', asrOptionsFrom('parakeet', opts), events)
+      return new NativeAsrTranscription(
+        'parakeet',
+        asrOptionsFrom('parakeet', opts, live),
+        events,
+        role,
+      )
     default:
       throw new Error(`unknown transcription engine: ${cfg.engine}`)
   }
+}
+
+export function makeTranscription(
+  cfg: TranscriptionConfig,
+  events?: EventBus,
+): TranscriptionEngine {
+  // Both engines segment the audio with the primary's `live` settings, which is
+  // what makes their segments comparable: same VAD, same boundaries, two
+  // transcripts of the same speech.
+  const live = liveOptionsFrom((cfg.options ?? {}).live)
+  const primary = makeEngine(cfg, live, 'primary', events)
+  const compare = cfg.compare
+  if (!compare) return primary
+  return new DualTranscription(primary, makeEngine(compare, live, 'compare', events), events)
 }

@@ -22,18 +22,14 @@ bun install
 Build requirements:
 
 - [Bun](https://bun.sh)
-- [Rust/Cargo](https://rustup.rs), used to build the native tray, OCR, and ASR
-  helpers (install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- [Rust/Cargo](https://rustup.rs), used to build the native tray, ASR, and
+  Wayland-capture helpers (install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 - [CMake](https://cmake.org), required to build the `sentencepiece-sys`
-  native dependency pulled in by the embed/tokenizer stack. On macOS:
-  `brew install cmake`; on Debian/Ubuntu: `sudo apt install cmake`.
+  native dependency pulled in by the embed/tokenizer stack: on Debian/Ubuntu,
+  `sudo apt install cmake`.
 
-On **Windows**, system-audio capture requires [Screen Capturer Recorder](https://github.com/rdp/screen-capture-recorder-to-video-windows-free/releases),
-which registers the `virtual-audio-capturer` dshow device. Use
-`--no-system-audio` to skip system audio.
-
-On **Linux** (Debian/Ubuntu), install the system packages used by the native
-tray helper, screen capture and audio capture:
+On Debian/Ubuntu, install the system packages used by the native tray helper,
+screen capture and audio capture:
 
 ```sh
 sudo apt install \
@@ -55,10 +51,9 @@ sudo apt install \
   Use `libappindicator3-dev` on older distros if the ayatana package is missing.
 - `libssl-dev`: the OCR/ASR helpers' `hf-hub` model downloader links against
   system OpenSSL via `openssl-sys`.
-- `ffmpeg`: needed for mic/system audio capture. The bundled `ffmpeg-static`
-  binary lacks PulseAudio/PipeWire support, so on Linux Hyprmnesia uses the
-  system `ffmpeg` (Debian/Ubuntu builds enable `libpulse` by default;
-  `pipewire-pulse` provides the PA socket on modern desktops).
+- `ffmpeg`: needed for mic/system audio capture, via the system `ffmpeg`
+  (Debian/Ubuntu builds enable `libpulse` by default; `pipewire-pulse`
+  provides the PA socket on modern desktops).
 
 Screen capture on Linux requires a **Wayland session**. It goes through the
 xdg-desktop-portal ScreenCast interface via the `hpm-wlcap` helper, which asks
@@ -112,13 +107,6 @@ sudo apt install -y syncthing
 systemctl --user enable --now syncthing
 ```
 
-macOS:
-
-```sh
-brew install syncthing
-brew services start syncthing
-```
-
 Verify it answers:
 
 ```sh
@@ -126,9 +114,8 @@ syncthing cli show system | head -5
 ```
 
 `syncthing cli` talks to the running daemon over its local REST API and picks up
-the API key from `~/.config/syncthing/config.xml` (or `~/Library/Application
-Support/Syncthing/`) on its own. If it prints a connection error, the daemon is
-not running.
+the API key from `~/.config/syncthing/config.xml` on its own. If it prints a
+connection error, the daemon is not running.
 
 ### 2. Create the shared directory
 
@@ -303,7 +290,6 @@ The daemon is a detached `hpm _capture` process controlled by local files:
 - `~/.hyprmnesia/daemon.pid`: running daemon PID
 - `~/.hyprmnesia/daemon.log`: daemon NDJSON log (one event per line)
 - `~/.hyprmnesia/daemon.log.1`: rotated copy when the active log exceeds 10 MB
-- `~/.hyprmnesia/daemon.err.log`: Windows daemon stderr log
 - `~/.hyprmnesia/daemon.start.lock`: start lock to prevent duplicate daemons
 - `~/.hyprmnesia/levels.json`: latest mic/system RMS, refreshed every 100 ms
 - `~/.hyprmnesia/tray.lock`: tray single-instance lock
@@ -375,6 +361,12 @@ processing:
         max_segment_ms: 6000
         silence_ms: 700
         rms_gate: 0.003
+    compare:
+      engine: noop
+      options:
+        model: whisper-large-v3-turbo
+        language: auto
+        compute_type: int8
 storage:
   path: ~/hyprmnesia-sync
   host_id: rpi5
@@ -386,13 +378,33 @@ this machine's subdirectory inside it, and `storage.snapshot_interval_minutes`
 how often the live database is republished there. See
 [Multi-Device Storage](#multi-device-storage-syncthing).
 
-OCR engines: `auto`, `native`, `tesseract`, `noop`.
-Transcription engines: `parakeet`, `noop`. Old `auto` / `whisper` configs are
+OCR engines: `auto`, `tesseract`, `noop`.
+Transcription engines: `parakeet`, `whisper`, `noop`. Old `auto` configs are
 treated as Parakeet for compatibility; `whisper-cli` is no longer used in the
 normal runtime path.
-Parakeet model: `parakeet-tdt-0.6b-v3`. The ASR helper auto-downloads the model
-to the Hugging Face cache on first use; capture continues while it is loading,
-but audio recorded before the model is ready is not transcribed.
+Parakeet model: `parakeet-tdt-0.6b-v3`. Whisper models are the faster-whisper
+CTranslate2 ones, `whisper-large-v3-turbo` down to `whisper-tiny`. The ASR
+helper auto-downloads a model to the Hugging Face cache on first use; capture
+continues while it is loading, but audio recorded before the model is ready is
+not transcribed.
+
+### Running two engines at once
+
+`processing.transcription.compare` names a second engine that transcribes the
+same audio as the first, so both transcripts can be read side by side. Set it to
+`whisper` (or `noop` to turn it off) and both Live and Replay show the two takes
+on each stretch of speech, labelled by engine.
+
+Both engines are handed identical audio and the primary engine's `live`
+segmentation settings, which is what makes their segments start and end together
+and line up as pairs. The compare engine has no `live` block of its own for that
+reason, and it cannot name the same family as the primary.
+
+The primary engine stays the one of record: only its words become the chunk's
+text, reach the search index and get embedded. The compare engine's segments are
+stored and displayed and nothing else. It also costs a second model in memory
+and a second transcription per segment, so leave it off unless you are actually
+comparing.
 
 `capture.audio.echo_suppression` is a transcript guard for speaker bleed: when
 system audio is active, mic frames are only sent to ASR if the mic is clearly
@@ -422,12 +434,14 @@ writes JSON logs.
 
 ## Platform Support
 
-|                | Windows                                | macOS (TODO)              | Linux  (TODO)                            |
-| -------------- | -------------------------------------- | ------------------- | ---------------------------------- |
-| Screen capture | none                                   | OK                  | OK (Wayland portal), no X11        |
-| Mic            | OK (dshow)                             | OK (avfoundation)   | OK (pulse)                         |
-| System audio   | needs Screen Capturer Recorder         | needs BlackHole 2ch | `@DEFAULT_MONITOR@` via pulse      |
-| Window context | OK                                     | OK + URL            | OK on X11, none on Wayland         |
+Linux only, and only under a Wayland session:
+
+| Capability     | Status                                        |
+| -------------- | ---------------------------------------------- |
+| Screen capture | OK (Wayland portal), no X11                    |
+| Mic            | OK (pulse)                                     |
+| System audio   | `@DEFAULT_MONITOR@` via pulse                  |
+| Window context | OK on X11, none on Wayland                     |
 
 Screen capture reads text off the frame afterwards, never while capturing: the
 frame is stored first and `OcrQueue` fills in the text. A slow OCR engine costs
@@ -435,10 +449,10 @@ searchable text, never frames.
 
 ## Roadmap
 
-- [ ] Harden Parakeet ASR across Windows/macOS/Linux
+- [ ] Harden Parakeet ASR
 - [x] SQLite FTS5 query APIs over OCR + transcript segments
 - [ ] Encrypted at-rest blob storage
-- [ ] macOS / Linux smoke testing
+- [ ] Linux smoke testing
 
 ## License
 

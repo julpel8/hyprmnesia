@@ -10,14 +10,8 @@ interface VecExtensionOptions {
   candidates?: readonly string[]
 }
 
-function libName(): string {
-  if (process.platform === 'win32') return 'vec0.dll'
-  if (process.platform === 'darwin') return 'vec0.dylib'
-  return 'vec0.so'
-}
-
 function vecExtensionCandidates(): string[] {
-  const name = libName()
+  const name = 'vec0.so'
   return [
     join(dirname(process.execPath), 'native', name),
     join(dirname(process.execPath), name),

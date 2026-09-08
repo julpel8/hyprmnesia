@@ -16,18 +16,12 @@ export interface ScreenCaptureConfig {
   max_width: number
 }
 
-type SystemAudioBackend = 'auto' | 'wasapi' | 'dshow'
 type AudioStorageFormat = 'webm' | 'wav'
 
 export interface AudioStreamConfig {
   enabled: boolean
   device: string
   chunk_ms: number
-  // Only meaningful for the system stream on Windows. Selects how system audio
-  // is captured: 'auto' prefers the WASAPI loopback helper (keeps capturing
-  // when output is muted) and falls back to DirectShow; 'dshow' forces the
-  // legacy virtual-audio-capturer path.
-  backend?: SystemAudioBackend
 }
 
 export interface AudioCaptureConfig {
@@ -49,6 +43,14 @@ export interface AudioCaptureConfig {
 export interface EngineConfig {
   engine: string
   options?: Record<string, unknown>
+}
+
+export interface TranscriptionConfig extends EngineConfig {
+  // Optional second ASR engine fed the very same PCM frames as `engine`, so the
+  // two transcripts can be read side by side in Live and Replay. `noop` turns it
+  // off. Its segments are stored and displayed but never feed chunk text,
+  // search or embeddings: the primary engine stays the one recording says.
+  compare?: EngineConfig
 }
 
 export interface UpdateConfig {
@@ -79,14 +81,14 @@ export interface Config {
   }
   processing: {
     ocr: EngineConfig
-    transcription: EngineConfig
+    transcription: TranscriptionConfig
     embeddings: EngineConfig
   }
   storage: StorageConfig
   update: UpdateConfig
 }
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 6
+export const CURRENT_CONFIG_SCHEMA_VERSION = 7
 
 // Storage layout before the multi-machine split. A config still pointing there
 // would silently keep writing outside the shared tree, so we refuse it instead
@@ -135,7 +137,7 @@ const defaultConfig: Config = {
         hold_ms: 500,
       },
       mic: { enabled: true, device: 'default', chunk_ms: 5000 },
-      system: { enabled: true, device: 'default', chunk_ms: 5000, backend: 'auto' },
+      system: { enabled: true, device: 'default', chunk_ms: 5000 },
     },
   },
   processing: {
@@ -154,6 +156,16 @@ const defaultConfig: Config = {
           max_segment_ms: 6000,
           silence_ms: 700,
           rms_gate: 0.003,
+        },
+      },
+      // Off by default: a second engine doubles model memory and CPU per
+      // segment. Set `engine: whisper` to read both transcripts side by side.
+      compare: {
+        engine: 'noop',
+        options: {
+          model: 'whisper-large-v3-turbo',
+          language: 'auto',
+          compute_type: 'int8',
         },
       },
     },
@@ -281,6 +293,7 @@ function migrateConfig(parsed: DeepPartial<Config>, path: string): void {
   if (version <= 3) migrateConfigV3ToV4(parsed)
   if (version <= 4) migrateConfigV4ToV5(parsed)
   if (version <= 5) migrateConfigV5ToV6(parsed)
+  if (version <= 6) migrateConfigV6ToV7(parsed)
 }
 
 // v0 carried a legacy `storage.encryption.enabled` flag. Encryption is gone, so
@@ -362,7 +375,66 @@ function migrateConfigV4ToV5(parsed: DeepPartial<Config>): void {
 function migrateConfigV5ToV6(parsed: DeepPartial<Config>): void {
   const raw = parsed as Record<string, unknown>
   delete raw.mcp
+  parsed.schema_version = 6
+}
+
+// A second ASR engine can now run alongside the first. Seed the block, off, so
+// the file shows the option exists; normalizeConfig fills in its model options.
+function migrateConfigV6ToV7(parsed: DeepPartial<Config>): void {
+  const tx = parsed.processing?.transcription as { engine?: unknown; compare?: unknown } | undefined
+  if (tx && !tx.compare) tx.compare = { engine: 'noop' }
   parsed.schema_version = CURRENT_CONFIG_SCHEMA_VERSION
+}
+
+// Model/language/compute_type rules for one ASR engine slot. Shared by the
+// primary engine and the optional compare engine, which accept the same options
+// because they run the same worker binary.
+function normalizeTranscriptionEngine(slot: EngineConfig): void {
+  if (LEGACY_TRANSCRIPTION_ENGINES.has(slot.engine)) slot.engine = 'parakeet'
+  if (!SUPPORTED_TRANSCRIPTION_ENGINES.has(slot.engine)) slot.engine = 'parakeet'
+  if (slot.engine === 'noop') return
+  slot.options ??= {}
+  const options = slot.options
+  if (slot.engine === 'whisper') {
+    // Tolerate configs that still carry a retired -q5 name (e.g. saved before
+    // the v2->v3 migration touched them) by remapping to the base model.
+    if (typeof options.model === 'string' && options.model in LEGACY_WHISPER_MODEL_REMAP) {
+      options.model = LEGACY_WHISPER_MODEL_REMAP[options.model]
+    }
+    if (typeof options.model !== 'string' || !WHISPER_MODELS.has(options.model)) {
+      options.model = DEFAULT_WHISPER_MODEL
+    }
+    if (typeof options.language !== 'string' || options.language.trim() === '') {
+      options.language = DEFAULT_WHISPER_LANGUAGE
+    } else {
+      options.language = options.language.trim()
+    }
+    if (
+      typeof options.compute_type !== 'string' ||
+      !WHISPER_COMPUTE_TYPES.has(options.compute_type)
+    ) {
+      options.compute_type = DEFAULT_WHISPER_COMPUTE_TYPE
+    }
+  } else {
+    if (options.model !== DEFAULT_PARAKEET_MODEL) options.model = DEFAULT_PARAKEET_MODEL
+    delete options.language
+    delete options.compute_type
+  }
+}
+
+// The compare slot always exists so the settings UI has a path to write. It is
+// forced off when the primary is off (nothing to compare against) or when it
+// names the primary's own family (two runs of the same model produce the same
+// text and would collide on the `engine` recorded per segment). Segmentation is
+// deliberately not configurable here: both engines share the primary's `live`
+// settings so their segments line up and can be read as pairs.
+function normalizeCompareEngine(tx: TranscriptionConfig): void {
+  if (!tx.compare || typeof tx.compare !== 'object') tx.compare = { engine: 'noop', options: {} }
+  const compare = tx.compare
+  normalizeTranscriptionEngine(compare)
+  if (tx.engine === 'noop' || compare.engine === tx.engine) compare.engine = 'noop'
+  compare.options ??= {}
+  delete compare.options.live
 }
 
 function normalizeConfig(config: Config): Config {
@@ -406,35 +478,9 @@ function normalizeConfig(config: Config): Config {
   )
 
   const tx = config.processing.transcription
-  if (LEGACY_TRANSCRIPTION_ENGINES.has(tx.engine)) tx.engine = 'parakeet'
-  if (!SUPPORTED_TRANSCRIPTION_ENGINES.has(tx.engine)) tx.engine = 'parakeet'
+  normalizeTranscriptionEngine(tx)
   if (tx.engine !== 'noop') {
     tx.options ??= {}
-    if (tx.engine === 'whisper') {
-      // Tolerate configs that still carry a retired -q5 name (e.g. saved before
-      // the v2->v3 migration touched them) by remapping to the base model.
-      if (typeof tx.options.model === 'string' && tx.options.model in LEGACY_WHISPER_MODEL_REMAP) {
-        tx.options.model = LEGACY_WHISPER_MODEL_REMAP[tx.options.model]
-      }
-      if (typeof tx.options.model !== 'string' || !WHISPER_MODELS.has(tx.options.model)) {
-        tx.options.model = DEFAULT_WHISPER_MODEL
-      }
-      if (typeof tx.options.language !== 'string' || tx.options.language.trim() === '') {
-        tx.options.language = DEFAULT_WHISPER_LANGUAGE
-      } else {
-        tx.options.language = tx.options.language.trim()
-      }
-      if (
-        typeof tx.options.compute_type !== 'string' ||
-        !WHISPER_COMPUTE_TYPES.has(tx.options.compute_type)
-      ) {
-        tx.options.compute_type = DEFAULT_WHISPER_COMPUTE_TYPE
-      }
-    } else {
-      if (tx.options.model !== DEFAULT_PARAKEET_MODEL) tx.options.model = DEFAULT_PARAKEET_MODEL
-      delete tx.options.language
-      delete tx.options.compute_type
-    }
     tx.options.live = deepMerge(
       (defaultConfig.processing.transcription.options?.live ?? {}) as Record<string, unknown>,
       (tx.options.live && typeof tx.options.live === 'object' ? tx.options.live : {}) as Record<
@@ -443,6 +489,7 @@ function normalizeConfig(config: Config): Config {
       >,
     )
   }
+  normalizeCompareEngine(tx)
   const emb = config.processing.embeddings
   if (!emb || typeof emb !== 'object') {
     config.processing.embeddings = deepMerge(defaultConfig.processing.embeddings, {})

@@ -6,13 +6,12 @@ import type { BlobStore } from '../store/blobs'
 import type { ChunkStore } from '../store/db'
 import { isWebp } from '../util/webp'
 import { needsImageTranscode, transcodeImage } from './ffmpeg'
-import type { SckBus, SckFrameEvent } from './sck'
-import { createWlcapBus } from './wlcap'
+import { createWlcapBus, type WlcapFrameEvent } from './wlcap'
 
 interface FrameBus {
   start(): Promise<void>
   stop(): Promise<void>
-  onFrame(handler: (frame: SckFrameEvent) => void): () => void
+  onFrame(handler: (frame: WlcapFrameEvent) => void): () => void
 }
 
 type StoredImageExt = 'png' | 'jpg' | 'webp'
@@ -24,7 +23,6 @@ export interface ScreenCaptureDeps {
   store: ChunkStore
   ocr: OcrEngine
   events: EventBus
-  sck?: SckBus
   getWindow?: () => WindowContext | undefined
 }
 
@@ -37,7 +35,7 @@ function captureImageFormat(format: ScreenCaptureConfig['format']): CaptureImage
   return format === 'webp' ? 'png' : format
 }
 
-function frameExt(format: SckFrameEvent['format']): CaptureImageFormat {
+function frameExt(format: WlcapFrameEvent['format']): CaptureImageFormat {
   return format === 'jpeg' ? 'jpg' : 'png'
 }
 
@@ -54,17 +52,15 @@ async function prepareImageForStorage(
   return { image, ext: opts.format }
 }
 
-// Backend selection: Wayland uses the xdg-desktop-portal ScreenCast helper
-// (hpm-wlcap), macOS the ScreenCaptureKit one (hpm-sck). There is no fallback —
-// the X11 path shelled out to ImageMagick's `import` once per frame and is
-// gone.
+// Backend: the xdg-desktop-portal ScreenCast helper (hpm-wlcap). There is no
+// fallback — the X11 path shelled out to ImageMagick's `import` once per
+// frame and is gone.
 export function startScreenCapture({
   cfg,
   blobs,
   store,
   ocr,
   events,
-  sck,
   getWindow,
 }: ScreenCaptureDeps): CaptureRunner {
   if (!cfg.enabled) {
@@ -77,11 +73,7 @@ export function startScreenCapture({
     return { stop: () => {}, done: Promise.resolve() }
   }
 
-  // if (process.platform === 'darwin' && sck) {
-  //   return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, sck, 'sck')
-  // }
-
-  if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
+  if (process.env.WAYLAND_DISPLAY) {
     const imageFormat = captureImageFormat(cfg.format)
     const wlcap = createWlcapBus(
       {
@@ -98,9 +90,8 @@ export function startScreenCapture({
     type: 'log',
     at: Date.now(),
     level: 'warn',
-    message: `screen capture unavailable on ${process.platform}${
-      process.platform === 'linux' ? ' without WAYLAND_DISPLAY' : ''
-    }; no capture backend for this session`,
+    message:
+      'screen capture unavailable without WAYLAND_DISPLAY; no capture backend for this session',
   })
   return { stop: () => {}, done: Promise.resolve() }
 }
@@ -113,7 +104,7 @@ function startWorkerScreen(
   let running = true
   let lastAcceptedAt = 0
 
-  async function processFrame(frame: SckFrameEvent) {
+  async function processFrame(frame: WlcapFrameEvent) {
     const start = Date.now()
     const fallbackExt = frameExt(frame.format)
     try {

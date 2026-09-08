@@ -36,6 +36,12 @@ function parseTimeParam(value: string | null): number {
   return Date.parse(value)
 }
 
+// hpm-asr reports engines as "family:model"; the family alone is enough to tell
+// two transcripts of the same speech apart.
+function engineLabel(engine: string): string {
+  return engine.split(':')[0] || engine
+}
+
 function activeByStart(items: ReplayChunk[], ms: number): ReplayChunk | null {
   let active: ReplayChunk | null = null
   for (const item of items) {
@@ -368,14 +374,23 @@ export function ReplayView({ params }: { params: URLSearchParams }) {
   }, [updateSuppression, syncAudio])
 
   const screen = manifest ? activeByStart(manifest.screenshots, displayMs) : null
+  const comparedSegments = Boolean(manifest?.segments.some((segment) => segment.role === 'compare'))
   const activeSubtitles =
     manifest && subs
-      ? manifest.segments.filter(
-          (segment) =>
-            segment.offset_start_ms <= displayMs &&
-            segment.offset_end_ms >= displayMs &&
-            segment.text.trim(),
-        )
+      ? manifest.segments
+          .filter(
+            (segment) =>
+              segment.offset_start_ms <= displayMs &&
+              segment.offset_end_ms >= displayMs &&
+              segment.text.trim(),
+          )
+          // Two engines transcribing the same speech produce two segments with
+          // the same start; the primary one always reads first.
+          .sort(
+            (a, b) =>
+              a.offset_start_ms - b.offset_start_ms ||
+              Number(a.role === 'compare') - Number(b.role === 'compare'),
+          )
       : []
 
   const emptyText = !manifest
@@ -462,8 +477,15 @@ export function ReplayView({ params }: { params: URLSearchParams }) {
           )}
           <div className="subtitles">
             {activeSubtitles.map((segment) => (
-              <div className="subtitle" key={segment.id}>
+              <div
+                className={segment.role === 'compare' ? 'subtitle compare' : 'subtitle'}
+                key={segment.id}
+              >
                 <b>{segment.source}</b>
+                {/* Only worth naming the engine when a second one recorded the
+                    same speech; on its own the primary transcript is just the
+                    transcript. */}
+                {comparedSegments && <i>{engineLabel(segment.engine)}</i>}
                 {segment.text}
               </div>
             ))}

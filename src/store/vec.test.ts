@@ -81,7 +81,7 @@ test('loadVecExtension returns false when no candidate library exists and leaves
 
 test('loadVecExtension catches load errors and leaves DB usable', () => {
   const dir = freshDir()
-  const fakeExtension = join(dir, process.platform === 'win32' ? 'vec0.dll' : 'vec0.so')
+  const fakeExtension = join(dir, 'vec0.so')
   writeFileSync(fakeExtension, 'not a sqlite extension')
   const db = new Database(':memory:')
   try {

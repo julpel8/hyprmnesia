@@ -408,7 +408,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -417,7 +418,8 @@ export class HyprmnesiaReadStore {
           AND (
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY at ASC
         LIMIT $limit OFFSET $offset
@@ -446,7 +448,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -460,7 +463,8 @@ export class HyprmnesiaReadStore {
           AND (
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY c.at DESC
         LIMIT $limit
@@ -513,7 +517,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -525,7 +530,8 @@ export class HyprmnesiaReadStore {
           AND ($app IS NULL OR c.window_app LIKE $app)
           AND (
             COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY c.at ASC
         LIMIT $limit
@@ -544,6 +550,7 @@ export class HyprmnesiaReadStore {
         FROM transcript_segments
         WHERE start_at >= $from
           AND start_at <= $to
+          AND role = 'primary'
           AND COALESCE(text, '') <> ''
         ORDER BY start_at ASC
         LIMIT $limit
@@ -570,8 +577,11 @@ export class HyprmnesiaReadStore {
       )
       .all(id)
       .map(toSegment)
+    // Both transcripts are returned so a caller can compare them, but the count
+    // that describes the chunk stays the number of primary segments.
+    const primaryCount = segments.filter((segment) => segment.role === 'primary').length
     const chunk = {
-      ...toTimelineItem(row, segments.length),
+      ...toTimelineItem(row, primaryCount),
       text: row.text ?? '',
       ocr_engine: row.ocr_engine,
       audio_engine: row.audio_engine,

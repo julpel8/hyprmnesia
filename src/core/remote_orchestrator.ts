@@ -55,7 +55,6 @@ export function makeRemoteOrchestrator(): Orchestrator {
       const proc = spawn(process.execPath, selfCliArgs(command, extra), {
         detached: true,
         stdio: 'ignore',
-        windowsHide: true,
       })
       proc.once('error', reject)
       proc.once('exit', (code) => {

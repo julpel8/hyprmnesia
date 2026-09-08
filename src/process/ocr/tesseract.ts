@@ -1,74 +1,38 @@
 import { spawn } from 'node:child_process'
-import { accessSync, constants, existsSync } from 'node:fs'
+import { accessSync, constants } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, posix, win32 } from 'node:path'
+import { dirname, join, posix } from 'node:path'
 import { randomUUIDv7 } from 'bun'
 import type { OcrEngine } from '../types'
 
-// Fallback engine for macOS/Linux that shells out to `tesseract`.
-// We search PATH plus common package-manager locations because launchd and
-// desktop autostart sessions often inherit a smaller PATH than terminals.
-// install: macOS -> `brew install tesseract`
-//          Debian -> `apt install tesseract-ocr`
-
-type Platform = NodeJS.Platform
+// Fallback engine that shells out to `tesseract`.
+// We search PATH plus common package-manager locations because desktop
+// autostart sessions often inherit a smaller PATH than terminals.
+// install: Debian -> `apt install tesseract-ocr`
 
 interface TesseractSearchOptions {
   binary?: string
   env?: NodeJS.ProcessEnv
-  platform?: Platform
 }
 
-function pathApi(platform: Platform) {
-  return platform === 'win32' ? win32 : posix
-}
-
-function pathDelimiter(platform: Platform): string {
-  return platform === 'win32' ? ';' : ':'
-}
+const COMMON_TESSERACT_DIRS = ['/usr/bin', '/usr/local/bin', '/snap/bin', '/bin']
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))]
 }
 
-function commandNames(command: string, env: NodeJS.ProcessEnv, platform: Platform): string[] {
-  if (platform !== 'win32' || /\.[a-z0-9]+$/i.test(command)) return [command]
-  const exts = (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD')
-    .split(';')
-    .map((ext) => ext.trim())
-    .filter(Boolean)
-  return [command, ...exts.map((ext) => `${command}${ext.toLowerCase()}`)]
-}
-
-function commonTesseractDirs(env: NodeJS.ProcessEnv, platform: Platform): string[] {
-  if (platform === 'darwin') return ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin']
-  if (platform === 'linux') return ['/usr/bin', '/usr/local/bin', '/snap/bin', '/bin']
-  if (platform === 'win32') {
-    return [
-      env.ProgramFiles ? win32.join(env.ProgramFiles, 'Tesseract-OCR') : '',
-      env['ProgramFiles(x86)'] ? win32.join(env['ProgramFiles(x86)'], 'Tesseract-OCR') : '',
-    ]
-  }
-  return []
-}
-
 export function tesseractSearchPaths(opts: TesseractSearchOptions = {}): string[] {
   const env = opts.env ?? process.env
-  const platform = opts.platform ?? process.platform
   const command = opts.binary ?? env.HPM_TESSERACT ?? env.TESSERACT_BINARY ?? 'tesseract'
-  const paths = pathApi(platform)
-  if (paths.isAbsolute(command) || command.includes('/') || command.includes('\\')) {
-    return [command]
-  }
+  if (posix.isAbsolute(command) || command.includes('/')) return [command]
 
-  const names = commandNames(command, env, platform)
   const pathDirs = (env.PATH ?? '')
-    .split(pathDelimiter(platform))
+    .split(':')
     .map((dir) => dir.trim())
     .filter(Boolean)
-  const dirs = unique([...pathDirs, ...commonTesseractDirs(env, platform)])
-  return unique(dirs.flatMap((dir) => names.map((name) => paths.join(dir, name))))
+  const dirs = unique([...pathDirs, ...COMMON_TESSERACT_DIRS])
+  return unique(dirs.map((dir) => posix.join(dir, command)))
 }
 
 function isExecutable(path: string): boolean {
@@ -76,7 +40,7 @@ function isExecutable(path: string): boolean {
     accessSync(path, constants.X_OK)
     return true
   } catch {
-    return process.platform === 'win32' && existsSync(path)
+    return false
   }
 }
 
@@ -89,7 +53,7 @@ function runTesseract(binary: string, imagePath: string, lang?: string): Promise
     const args = [imagePath, '-']
     if (lang) args.push('-l', lang)
     args.push('--psm', '6')
-    const proc = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const proc = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     let err = ''
     proc.stdout.on('data', (b: Buffer) => {

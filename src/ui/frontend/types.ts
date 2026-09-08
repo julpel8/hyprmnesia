@@ -39,6 +39,9 @@ interface ReplaySegment {
   offset_end_ms: number
   text: string
   engine: string
+  // 'compare' segments come from the optional second ASR engine, transcribing
+  // the same speech as the primary one.
+  role: 'primary' | 'compare'
 }
 
 export interface ReplayManifest {

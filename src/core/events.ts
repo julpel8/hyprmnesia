@@ -49,6 +49,9 @@ export type CaptureEvent =
       text_len: number
       transcribe_ms: number
       engine: string
+      // 'compare' segments come from the optional second ASR engine: shown next
+      // to the primary transcript, never counted as the recording's own text.
+      role: 'primary' | 'compare'
     }
   | {
       type: 'transcribed'

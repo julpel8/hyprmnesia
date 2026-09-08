@@ -28,9 +28,10 @@ function getSettingValue(config: Config, path: SettingPath): unknown {
 }
 
 export function settingsFields(config: Config): SettingField[] {
-  const ocrEngine = String(getSettingValue(config, ['processing', 'ocr', 'engine']))
-  const nativeOcrPlatform = process.platform === 'win32' || process.platform === 'darwin'
   const txEngine = String(getSettingValue(config, ['processing', 'transcription', 'engine']))
+  const compareEngine = String(
+    getSettingValue(config, ['processing', 'transcription', 'compare', 'engine']) ?? 'noop',
+  )
   return [
     {
       label: 'Screen capture',
@@ -110,13 +111,6 @@ export function settingsFields(config: Config): SettingField[] {
       hint: 'device name or default',
     },
     {
-      label: 'System backend',
-      path: ['capture', 'audio', 'system', 'backend'],
-      kind: 'enum',
-      choices: ['auto', 'wasapi', 'dshow'],
-      hint: 'windows: wasapi survives mute',
-    },
-    {
       label: 'System chunk',
       path: ['capture', 'audio', 'system', 'chunk_ms'],
       kind: 'number',
@@ -181,17 +175,14 @@ export function settingsFields(config: Config): SettingField[] {
       label: 'OCR engine',
       path: ['processing', 'ocr', 'engine'],
       kind: 'enum',
-      choices: ['auto', 'native', 'tesseract', 'noop'],
+      choices: ['auto', 'tesseract', 'noop'],
       hint: 'screen text engine',
     },
     {
       label: 'OCR language',
       path: ['processing', 'ocr', 'options', 'lang'],
       kind: 'text',
-      hint:
-        ocrEngine === 'native' || (ocrEngine === 'auto' && nativeOcrPlatform)
-          ? 'OS OCR auto-detects language'
-          : 'tesseract lang, e.g. eng/fra',
+      hint: 'tesseract lang, e.g. eng/fra',
     },
     {
       label: 'Audio engine',
@@ -206,6 +197,36 @@ export function settingsFields(config: Config): SettingField[] {
       kind: 'enum',
       choices: ['parakeet-tdt-0.6b-v3'],
       hint: txEngine === 'noop' ? 'ignored by noop' : 'Parakeet model',
+    },
+    {
+      label: 'Compare engine',
+      path: ['processing', 'transcription', 'compare', 'engine'],
+      kind: 'enum',
+      choices: ['noop', 'whisper'],
+      hint:
+        txEngine === 'noop'
+          ? 'needs an audio engine first'
+          : 'second engine, shown beside the first',
+    },
+    {
+      label: 'Compare model',
+      path: ['processing', 'transcription', 'compare', 'options', 'model'],
+      kind: 'enum',
+      choices: [
+        'whisper-large-v3-turbo',
+        'whisper-large-v3',
+        'whisper-medium',
+        'whisper-small',
+        'whisper-base',
+        'whisper-tiny',
+      ],
+      hint: compareEngine === 'noop' ? 'compare engine is off' : 'Whisper model to compare against',
+    },
+    {
+      label: 'Compare language',
+      path: ['processing', 'transcription', 'compare', 'options', 'language'],
+      kind: 'text',
+      hint: compareEngine === 'noop' ? 'compare engine is off' : 'auto, or a code like fr/en',
     },
     {
       label: 'Live ASR',

@@ -161,5 +161,6 @@ export function toSegment(row: SegmentRow): TranscriptSegment {
     text: row.text,
     engine: row.engine,
     transcribe_ms: row.transcribe_ms,
+    role: row.role ?? 'primary',
   }
 }

@@ -5,7 +5,7 @@
 // Atomics.wait). See CLAUDE.md.
 
 import { existsSync, readFileSync } from 'node:fs'
-import { daemonPid, ERR_LOG_FILE, isDaemonAlive, LOG_FILE, readLevels } from '../../core/daemon'
+import { daemonPid, isDaemonAlive, LOG_FILE, readLevels } from '../../core/daemon'
 import type { Orchestrator } from '../../core/orchestrator'
 
 export interface DaemonContext {
@@ -20,7 +20,7 @@ export function statusPayload(orch: Orchestrator) {
     ...orch.status(),
     pid: running ? pid : null,
     logs: LOG_FILE,
-    errors: process.platform === 'win32' ? ERR_LOG_FILE : LOG_FILE,
+    errors: LOG_FILE,
     levels: readLevels(),
   }
 }

@@ -42,6 +42,7 @@ function segment(over: Partial<SegmentRow> & Pick<SegmentRow, 'id' | 'chunk_id'>
     start_at: T,
     end_at: T + 1_000,
     text: 'hello',
+    role: 'primary',
     engine: 'whisper:whisper-small',
     transcribe_ms: 10,
     ...over,

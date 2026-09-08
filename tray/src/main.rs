@@ -1,5 +1,3 @@
-#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
-
 use notify_rust::Notification;
 use serde::Deserialize;
 use std::{
@@ -10,9 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tao::event::{Event, StartCause};
-use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
-#[cfg(target_os = "macos")]
-use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
     Icon, TrayIcon, TrayIconBuilder,
@@ -35,18 +31,10 @@ impl TrayState {
 }
 
 const APP_NAME: &str = "Hyprmnesia";
-#[cfg(any(target_os = "windows", target_os = "linux"))]
 const STARTUP_NAME: &str = "Hyprmnesia Tray";
-#[cfg(target_os = "linux")]
 const LINUX_UNIT_NAME: &str = "hyprmnesia-tray.service";
 const REFRESH_EVERY: Duration = Duration::from_secs(2);
-#[cfg(target_os = "windows")]
-const TRAY_RUNNING_ICON: &[u8] = include_bytes!("../assets/tray-running.png");
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 const TRAY_RUNNING_ICON: &[u8] = include_bytes!("../assets/tray-running-unix.png");
-#[cfg(target_os = "windows")]
-const TRAY_STOPPED_ICON: &[u8] = include_bytes!("../assets/tray-stopped.png");
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 const TRAY_STOPPED_ICON: &[u8] = include_bytes!("../assets/tray-stopped-unix.png");
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -85,7 +73,7 @@ impl Default for DaemonStatus {
             running: false,
             pid: None,
             logs: log_dir.join("daemon.log"),
-            errors: log_dir.join("daemon.err.log"),
+            errors: log_dir.join("daemon.log"),
             capture: CaptureSwitches::default(),
         }
     }
@@ -124,10 +112,8 @@ fn main() {
         Ok(paths) => paths,
         Err(_) => return,
     };
-    configure_notification_application();
 
-    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    configure_event_loop(&mut event_loop);
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     // tray-icon menu callbacks arrive outside tao's event loop, so bounce them
     // through a user event and keep all menu state changes on one thread.
@@ -205,27 +191,6 @@ fn main() {
         }
     });
 }
-
-#[cfg(target_os = "macos")]
-fn configure_event_loop<T>(event_loop: &mut EventLoop<T>) {
-    event_loop.set_activation_policy(ActivationPolicy::Accessory);
-    event_loop.set_dock_visibility(false);
-    event_loop.set_activate_ignoring_other_apps(false);
-}
-
-#[cfg(not(target_os = "macos"))]
-fn configure_event_loop<T>(_: &mut EventLoop<T>) {}
-
-#[cfg(target_os = "macos")]
-fn configure_notification_application() {
-    // notify-rust's macOS default asks AppleScript for an app named
-    // "use_default", which opens a "Choose Application" dialog. Set a known
-    // system bundle id up front so the first daemon transition notification is quiet.
-    let _ = notify_rust::set_application("com.apple.finder");
-}
-
-#[cfg(not(target_os = "macos"))]
-fn configure_notification_application() {}
 
 fn build_menu() -> (Menu, TrayMenu) {
     let menu = Menu::new();
@@ -466,27 +431,6 @@ fn tray_lock_is_alive(lock_path: &Path) -> bool {
         .is_some_and(pid_alive)
 }
 
-#[cfg(target_os = "windows")]
-fn pid_alive(pid: u32) -> bool {
-    let script = format!(
-        "if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
-    );
-    let mut command = Command::new("powershell.exe");
-    hide_command_window(&mut command);
-    command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ])
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-#[cfg(not(target_os = "windows"))]
 fn pid_alive(pid: u32) -> bool {
     Command::new("kill")
         .arg("-0")
@@ -526,22 +470,12 @@ fn open_dashboard(paths: &AppPaths) -> io::Result<()> {
 
 fn base_command(program: &Path) -> Command {
     let mut command = Command::new(program);
-    hide_command_window(&mut command);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     command
 }
-
-#[cfg(target_os = "windows")]
-fn hide_command_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0800_0000);
-}
-
-#[cfg(not(target_os = "windows"))]
-fn hide_command_window(_: &mut Command) {}
 
 fn resolve_paths() -> io::Result<AppPaths> {
     let tray = env::current_exe()?;
@@ -561,27 +495,18 @@ fn resolve_paths() -> io::Result<AppPaths> {
 }
 
 fn hpm_candidates(tray_dir: &Path) -> Vec<PathBuf> {
-    let hpm = executable_name("hpm");
+    let hpm = "hpm";
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut candidates = vec![tray_dir.join(&hpm)];
+    let mut candidates = vec![tray_dir.join(hpm)];
     // Packaged installs place the tray in `<install>/native/` and the CLI in
     // `<install>/hpm`, so the sibling-of-parent path is the only candidate that
-    // resolves at Windows boot, where the Run key launches the tray with the
-    // working directory set to system32 rather than the install dir.
+    // resolves when the tray is launched with an unrelated working directory.
     if let Some(parent) = tray_dir.parent() {
-        candidates.push(parent.join(&hpm));
+        candidates.push(parent.join(hpm));
     }
-    candidates.push(cwd.join("dist").join(&hpm));
-    candidates.push(cwd.join(&hpm));
+    candidates.push(cwd.join("dist").join(hpm));
+    candidates.push(cwd.join(hpm));
     candidates
-}
-
-fn executable_name(base: &str) -> String {
-    if cfg!(target_os = "windows") {
-        format!("{base}.exe")
-    } else {
-        base.to_string()
-    }
 }
 
 fn make_icon(state: TrayState) -> Icon {
@@ -601,70 +526,9 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 fn open_path(path: &Path) -> io::Result<()> {
-    if cfg!(target_os = "windows") {
-        Command::new("explorer.exe").arg(path).spawn().map(|_| ())
-    } else if cfg!(target_os = "macos") {
-        Command::new("open").arg(path).spawn().map(|_| ())
-    } else {
-        Command::new("xdg-open").arg(path).spawn().map(|_| ())
-    }
+    Command::new("xdg-open").arg(path).spawn().map(|_| ())
 }
 
-#[cfg(target_os = "windows")]
-fn startup_enabled(tray: &Path) -> bool {
-    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") else {
-        return false;
-    };
-    let Ok(value): Result<String, _> = key.get_value(STARTUP_NAME) else {
-        return false;
-    };
-    value.contains(&tray.to_string_lossy().to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn set_startup(tray: &Path, enabled: bool) -> io::Result<()> {
-    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let (key, _) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")?;
-    if enabled {
-        key.set_value(STARTUP_NAME, &format!("\"{}\"", tray.display()))?;
-    } else {
-        let _ = key.delete_value(STARTUP_NAME);
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn startup_enabled(tray: &Path) -> bool {
-    startup_file()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .is_some_and(|content| content.contains(&tray.to_string_lossy().to_string()))
-}
-
-#[cfg(target_os = "macos")]
-fn set_startup(tray: &Path, enabled: bool) -> io::Result<()> {
-    let Some(path) = startup_file() else {
-        return Ok(());
-    };
-    if enabled {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, macos_launch_agent(tray))
-    } else {
-        match std::fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
 fn startup_enabled(tray: &Path) -> bool {
     let Some(path) = startup_file() else {
         return false;
@@ -680,7 +544,6 @@ fn startup_enabled(tray: &Path) -> bool {
     systemctl(&["is-enabled", LINUX_UNIT_NAME]).is_some_and(|out| out.status.success())
 }
 
-#[cfg(target_os = "linux")]
 fn set_startup(tray: &Path, enabled: bool) -> io::Result<()> {
     let Some(path) = startup_file() else {
         return Ok(());
@@ -713,7 +576,6 @@ fn set_startup(tray: &Path, enabled: bool) -> io::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn systemctl(args: &[&str]) -> Option<std::process::Output> {
     Command::new("systemctl")
         .arg("--user")
@@ -725,21 +587,10 @@ fn systemctl(args: &[&str]) -> Option<std::process::Output> {
         .ok()
 }
 
-#[cfg(target_os = "linux")]
 fn legacy_autostart_file() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("autostart").join("hyprmnesia-tray.desktop"))
 }
 
-#[cfg(target_os = "macos")]
-fn startup_file() -> Option<PathBuf> {
-    home_dir().map(|home| {
-        home.join("Library")
-            .join("LaunchAgents")
-            .join("com.hyprmnesia.tray.plist")
-    })
-}
-
-#[cfg(target_os = "linux")]
 fn startup_file() -> Option<PathBuf> {
     let config_home = dirs::config_dir()?;
     Some(
@@ -750,32 +601,9 @@ fn startup_file() -> Option<PathBuf> {
     )
 }
 
-#[cfg(target_os = "macos")]
-fn macos_launch_agent(tray: &Path) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.hyprmnesia.tray</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>{}</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>
-"#,
-        xml_escape(&tray.to_string_lossy())
-    )
-}
-
 // A systemd user unit rather than an XDG autostart entry: bare Wayland
 // compositors such as sway never read ~/.config/autostart, so the desktop file
 // was silently ignored there.
-#[cfg(target_os = "linux")]
 fn linux_service_unit(tray: &Path) -> String {
     format!(
         "[Unit]\n\
@@ -795,17 +623,6 @@ fn linux_service_unit(tray: &Path) -> String {
     )
 }
 
-#[cfg(target_os = "macos")]
-fn xml_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-#[cfg(target_os = "linux")]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -814,25 +631,13 @@ fn shell_quote(value: &str) -> String {
 mod tests {
     use super::*;
 
-    #[cfg(not(target_os = "windows"))]
     #[test]
     fn candidates_include_parent_for_packaged_layout() {
         // Packaged installs put the tray in `<install>/native/` and the CLI in
         // `<install>/hpm`; without the parent candidate the tray cannot find hpm
-        // when launched at boot with an unrelated working directory.
+        // when launched with an unrelated working directory.
         let tray_dir = Path::new("/opt/hyprmnesia/native");
-        let expected = tray_dir.parent().unwrap().join(executable_name("hpm"));
-        assert!(hpm_candidates(tray_dir).contains(&expected));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn candidates_include_parent_for_windows_install() {
-        // MSI installs land under %LOCALAPPDATA%\Programs\Hyprmnesia\native; at
-        // boot the Run key launches the tray with cwd = system32, so the
-        // sibling-of-parent candidate is the only one that resolves.
-        let tray_dir = Path::new(r"C:\Users\Test\AppData\Local\Programs\Hyprmnesia\native");
-        let expected = tray_dir.parent().unwrap().join("hpm.exe");
+        let expected = tray_dir.parent().unwrap().join("hpm");
         assert!(hpm_candidates(tray_dir).contains(&expected));
     }
 }

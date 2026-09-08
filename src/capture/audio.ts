@@ -19,7 +19,6 @@ import {
   resolvePcmSource,
 } from './audio_process'
 import { encodePcm16WebmOpus } from './ffmpeg'
-import type { SckBus } from './sck'
 import { encodePcm16Wav, pcm16Levels } from './wav'
 
 export interface AudioCaptureDeps {
@@ -28,7 +27,6 @@ export interface AudioCaptureDeps {
   store: ChunkStore
   transcription: TranscriptionQueue
   events: EventBus
-  sck?: SckBus
   getWindow?: () => WindowContext | undefined
 }
 
@@ -313,92 +311,6 @@ function publishDisabled(events: EventBus, source: AudioSource): CaptureRunner {
 
 export const __testing = { makeAudioConsumer, makeProcessShutdown }
 
-function startSckSystemStream(
-  stream: AudioStreamConfig,
-  sampleRate: number,
-  sck: SckBus,
-  deps: AudioStreamDeps,
-): CaptureRunner {
-  const source: AudioSource = 'system'
-  if (!stream.enabled) return publishDisabled(deps.events, source)
-
-  let running = true
-  let unsubscribe: (() => void) | undefined
-  let resolveStopped!: () => void
-  const stoppedSignal = new Promise<void>((resolve) => {
-    resolveStopped = resolve
-  })
-
-  const done = (async () => {
-    const consumer = makeAudioConsumer({
-      source,
-      device: 'sck',
-      sampleRate,
-      chunkMs: stream.chunk_ms,
-      ...deps,
-    })
-
-    try {
-      await sck.start()
-    } catch (err) {
-      deps.events.publish({
-        type: 'error',
-        source,
-        at: Date.now(),
-        message: `sck start failed: ${String(err)}`,
-      })
-      return
-    }
-
-    if (!running) return
-
-    deps.events.publish({
-      type: 'started',
-      source,
-      at: Date.now(),
-      meta: {
-        mode: 'pcm',
-        chunk_ms: stream.chunk_ms,
-        device: 'sck',
-        sample_rate: sampleRate,
-        storage_format: deps.storageFormat,
-        storage_bitrate_kbps: deps.storageBitrateKbps,
-      },
-    })
-
-    let appending: Promise<void> = Promise.resolve()
-    unsubscribe = sck.onAudio((event) => {
-      appending = appending
-        .then(() => consumer.appendPcm(event.pcm))
-        .catch((err) => {
-          deps.events.publish({
-            type: 'error',
-            source,
-            at: Date.now(),
-            message: `sck appendPcm: ${String(err)}`,
-          })
-        })
-    })
-
-    await stoppedSignal
-
-    unsubscribe?.()
-    unsubscribe = undefined
-    await appending.catch(() => {})
-    await consumer.finalize()
-    deps.events.publish({ type: 'stopped', source, at: Date.now() })
-  })()
-
-  return {
-    done,
-    stop: () => {
-      if (!running) return
-      running = false
-      resolveStopped()
-    },
-  }
-}
-
 function startStream(
   source: AudioSource,
   stream: AudioStreamConfig,
@@ -420,16 +332,12 @@ function startStream(
       return
     }
     const { bin, args, device, label } = resolved
-    if (resolved.warn) {
-      deps.events.publish({ type: 'log', at: Date.now(), level: 'warn', message: resolved.warn })
-    }
 
     let proc: ReturnType<typeof Bun.spawn>
     try {
       proc = Bun.spawn([bin, ...args], {
         stdout: 'pipe',
         stderr: 'pipe',
-        windowsHide: true,
       })
     } catch (err) {
       deps.events.publish({
@@ -467,7 +375,6 @@ function startStream(
         sample_rate: sampleRate,
         storage_format: deps.storageFormat,
         storage_bitrate_kbps: deps.storageBitrateKbps,
-        ...(resolved.backend ? { backend: resolved.backend } : {}),
       },
     })
 
@@ -526,7 +433,6 @@ export function startAudioCapture({
   store,
   transcription,
   events,
-  sck,
   getWindow,
 }: AudioCaptureDeps): CaptureRunner {
   const echo = makeEchoSuppression(cfg)
@@ -541,10 +447,7 @@ export function startAudioCapture({
     getWindow,
   }
   const mic = startStream('mic', cfg.mic, cfg.sample_rate, streamDeps)
-  const system =
-    process.platform === 'darwin' && cfg.system.enabled && sck
-      ? startSckSystemStream(cfg.system, cfg.sample_rate, sck, streamDeps)
-      : startStream('system', cfg.system, cfg.sample_rate, streamDeps)
+  const system = startStream('system', cfg.system, cfg.sample_rate, streamDeps)
   return {
     done: Promise.allSettled([mic.done, system.done]).then(() => {}),
     stop: () => {

@@ -1,5 +1,4 @@
 import { startAudioCapture } from '../capture/audio'
-import { createSckBus, type SckBus } from '../capture/sck'
 import { startScreenCapture } from '../capture/screen'
 import type { Config } from '../config'
 import { EmbeddingQueue } from '../process/embedding_queue'
@@ -78,7 +77,6 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
   let stopping: Promise<void> | undefined
   let storeClosed = false
   let windowTracker: WindowTracker | undefined
-  let sck: SckBus | undefined
   const runners: Runner[] = []
   const sourceStatus: Record<Source, SourceStatus> = {
     screen: { enabled: cfg.capture.screen.enabled, running: false },
@@ -128,31 +126,12 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
     ocrQueue = new OcrQueue(ocr, store, events, { hostDir: hostDir(cfg) })
     ocrQueue.start()
 
-    const wantSckScreen = process.platform === 'darwin' && cfg.capture.screen.enabled
-    const wantSckSystemAudio = process.platform === 'darwin' && cfg.capture.audio.system.enabled
-    if (wantSckScreen || wantSckSystemAudio) {
-      const imageFormat = cfg.capture.screen.format === 'webp' ? 'png' : cfg.capture.screen.format
-      sck = createSckBus(
-        {
-          sampleRate: cfg.capture.audio.sample_rate,
-          channelCount: 2,
-          frameIntervalMs: cfg.capture.screen.interval_ms,
-          imageFormat,
-          jpegQuality: cfg.capture.screen.quality,
-          captureAudio: wantSckSystemAudio,
-          captureVideo: wantSckScreen,
-        },
-        events,
-      )
-    }
-
     const screen = startScreenCapture({
       cfg: cfg.capture.screen,
       blobs,
       store,
       ocr,
       events,
-      sck,
       getWindow: () => windowTracker?.current(),
     })
     const audio = startAudioCapture({
@@ -161,7 +140,6 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       store,
       transcription: transcriptionQueue,
       events,
-      sck,
       getWindow: () => windowTracker?.current(),
     })
     runners.push(screen, audio)
@@ -215,19 +193,6 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       windowTracker = undefined
 
       await Promise.allSettled(activeRunners.map((r) => r.done))
-      if (sck) {
-        try {
-          await sck.stop()
-        } catch (err) {
-          events.publish({
-            type: 'error',
-            source: 'screen',
-            at: Date.now(),
-            message: `sck stop: ${String(err)}`,
-          })
-        }
-        sck = undefined
-      }
       await activeQueue?.stop()
       await activeEmbeddingQueue?.stop()
       await activeOcrQueue?.stop()

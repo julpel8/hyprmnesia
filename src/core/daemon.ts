@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -16,7 +16,6 @@ import { join } from 'node:path'
 const HOME_DIR = join(homedir(), '.hyprmnesia')
 const PID_FILE = join(HOME_DIR, 'daemon.pid')
 export const LOG_FILE = join(HOME_DIR, 'daemon.log')
-export const ERR_LOG_FILE = join(HOME_DIR, 'daemon.err.log')
 export const LEVELS_FILE = join(HOME_DIR, 'levels.json')
 const STOP_FILE = join(HOME_DIR, 'daemon.stop')
 const ROTATED_LOG_FILE = join(HOME_DIR, 'daemon.log.1')
@@ -113,12 +112,10 @@ function waitForPidStopped(pid: number, timeoutMs: number): boolean {
 }
 
 function signalDaemonPid(pid: number, signal: NodeJS.Signals): void {
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-pid, signal)
-      return
-    } catch {}
-  }
+  try {
+    process.kill(-pid, signal)
+    return
+  } catch {}
   try {
     process.kill(pid, signal)
   } catch {}
@@ -178,39 +175,6 @@ function buildRespawnArgs(extraArgs: string[]): { command: string; args: string[
   return { command: process.execPath, args: ['_capture', ...extraArgs] }
 }
 
-function psQuote(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`
-}
-
-function spawnWindowsDaemon(command: string, args: string[]): number {
-  // `detached: true` on Windows can allocate a visible console for console-subsystem
-  // binaries. PowerShell's Start-Process can create the daemon hidden while still
-  // returning the real child PID we need for `hpm status` and `hpm stop`.
-  const script = `
-$ErrorActionPreference = 'Stop'
-$process = Start-Process -FilePath ${psQuote(command)} -ArgumentList @(${args.map(psQuote).join(', ')}) -WorkingDirectory ${psQuote(process.cwd())} -WindowStyle Hidden -RedirectStandardOutput ${psQuote(LOG_FILE)} -RedirectStandardError ${psQuote(ERR_LOG_FILE)} -PassThru
-[Console]::Out.Write($process.Id)
-`
-  // -EncodedCommand avoids PowerShell quoting edge cases for paths/flags with spaces.
-  const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  const result = spawnSync(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-    { encoding: 'utf8', windowsHide: true },
-  )
-
-  if (result.error) throw result.error
-  if (result.status !== 0) {
-    const details = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
-    throw new Error(`failed to spawn daemon via PowerShell${details ? `: ${details}` : ''}`)
-  }
-
-  const pid = Number(result.stdout.trim())
-  if (!Number.isFinite(pid) || pid <= 0) throw new Error(`invalid daemon pid: ${result.stdout}`)
-  writeFileSync(PID_FILE, String(pid))
-  return pid
-}
-
 export function spawnDaemon(forwardFlags: string[] = []): number {
   ensureHome()
   clearStopRequest()
@@ -229,17 +193,13 @@ export function spawnDaemon(forwardFlags: string[] = []): number {
     if (existing !== undefined) return existing
 
     const { command, args } = buildRespawnArgs(forwardFlags)
-    if (process.platform === 'win32') {
-      return spawnWindowsDaemon(command, args)
-    }
 
-    // Unix-style daemonization: detach the child, redirect output, then let this
-    // parent exit without keeping the event loop alive.
+    // Detach the child, redirect output, then let this parent exit without
+    // keeping the event loop alive.
     const out = openSync(LOG_FILE, 'a')
     const proc = spawn(command, args, {
       detached: true,
       stdio: ['ignore', out, out],
-      windowsHide: true,
     })
     if (!proc.pid) throw new Error('failed to spawn daemon')
     proc.unref()
