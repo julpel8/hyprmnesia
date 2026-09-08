@@ -177,9 +177,13 @@ export class HyprmnesiaReadStore {
   }
 
   search(query: string, filters: QueryFilters): SearchResult[] {
+    return this.searchPage(query, filters, clampLimit(filters.limit), clampOffset(filters.offset))
+  }
+
+  // Public for the same reason as `timelinePage`: fusing N machines' rankings
+  // needs `offset + limit` hits from each, above the cap `search` applies.
+  searchPage(query: string, filters: QueryFilters, limit: number, offset: number): SearchResult[] {
     const mode = normalizeMode(filters.mode)
-    const limit = clampLimit(filters.limit)
-    const offset = clampOffset(filters.offset)
     const innerLimit = limit + offset
     const useVec = mode !== 'lexical' && this.vecReady && filters.queryVector !== undefined
 
@@ -379,8 +383,17 @@ export class HyprmnesiaReadStore {
   }
 
   timeline(filters: QueryFilters & { from: number; to: number }): TimelineItem[] {
-    const limit = clampLimit(filters.limit)
-    const offset = clampOffset(filters.offset)
+    return this.timelinePage(filters, clampLimit(filters.limit), clampOffset(filters.offset))
+  }
+
+  // Public so the federated reader can pull more than one public page out of a
+  // machine: merging N machines' lists needs `offset + limit` rows from each,
+  // which is above the cap `timeline` applies to a caller-supplied limit.
+  timelinePage(
+    filters: QueryFilters & { from: number; to: number },
+    limit: number,
+    offset: number,
+  ): TimelineItem[] {
     const source = normalizeSource(filters.source)
     const params = {
       $from: filters.from,

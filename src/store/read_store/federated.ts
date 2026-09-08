@@ -20,6 +20,24 @@ import type {
   TimelineItem,
 } from './types'
 
+// Merging by time means a page cannot be pushed down into each machine's SQL
+// OFFSET: any one machine may hold the whole page, so each has to hand over
+// `offset + limit` rows and the merge picks the slice. That is linear in the
+// offset, so it is bounded — past this, a deep page is refused rather than
+// answered from truncated lists, which is how it used to return another
+// machine's rows as if they were the page.
+const FANOUT_ROW_CAP = 2000
+
+function fanoutRows(limit: number, offset: number): number {
+  const need = limit + offset
+  if (need > FANOUT_ROW_CAP) {
+    throw new ReadStoreError(
+      `offset ${offset} is too deep to merge across machines (max ${FANOUT_ROW_CAP - limit} at this limit); narrow from/to instead`,
+    )
+  }
+  return need
+}
+
 export interface FederatedReadStoreOptions {
   hosts: HostSource[]
   // Called when a machine's index cannot be opened. Syncthing may be halfway
@@ -67,9 +85,8 @@ export class FederatedReadStore {
     // A single machine keeps its native scores (BM25, or vector distance);
     // re-fusing one list would replace them with rank scores for nothing.
     if (this.stores.length === 1) return this.stores[0]!.search(query, filters)
-    const lists = this.stores.map((store) =>
-      store.search(query, { ...filters, limit: limit + offset, offset: 0 }),
-    )
+    const need = fanoutRows(limit, offset)
+    const lists = this.stores.map((store) => store.searchPage(query, filters, need, 0))
     return rrfFuseMany(lists, limit, offset)
   }
 
@@ -78,9 +95,11 @@ export class FederatedReadStore {
     const offset = clampOffset(filters.offset)
     if (this.stores.length === 1) return this.stores[0]!.timeline(filters)
     // Each machine returns its own earliest `limit + offset` items, so the
-    // merged earliest `limit + offset` are all in hand.
+    // merged earliest `limit + offset` are all in hand. One machine can hold the
+    // whole page on its own, so every machine has to offer that many rows.
+    const need = fanoutRows(limit, offset)
     const merged = this.stores
-      .flatMap((store) => store.timeline({ ...filters, limit: limit + offset, offset: 0 }))
+      .flatMap((store) => store.timelinePage(filters, need, 0))
       .sort((a, b) => a.at - b.at || compareIds(a.id, b.id))
     return merged.slice(offset, offset + limit)
   }
