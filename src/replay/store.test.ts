@@ -2,8 +2,8 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ReadStoreError } from '../mcp/read_store'
 import { openChunkStore } from '../store/db'
+import { ReadStoreError } from '../store/read_store'
 import { ReplayStore } from './store'
 
 const dirs: string[] = []

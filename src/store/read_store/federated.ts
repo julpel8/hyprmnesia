@@ -1,6 +1,6 @@
 import { cachedHostSources, type HostSource } from '../../store/hosts'
 import { encodeCursor } from './cursor'
-import { clampLimit, clampOffset } from './filters'
+import { clampLimit, clampOffset, ReadStoreError } from './filters'
 import { HyprmnesiaReadStore, rrfFuseMany } from './index'
 import {
   type PeriodActivityFilters,
@@ -158,17 +158,34 @@ function encodeRecentCursor(beforeAt: number): string {
   return encodeCursor({ v: 1, t: 'ra', before_at: beforeAt })
 }
 
+export interface WithFederatedReadStoreOptions {
+  // Restrict the read to one machine's index. Absent means every machine found
+  // in the shared storage root, which is the default for every read route.
+  hostId?: string
+  onWarning?: (message: string) => void
+}
+
 // Opens every machine's index for the duration of one call. `localDbPath`
 // overrides the live local index (`--db`, tests).
 export function withFederatedReadStore<T>(
   localDbPath: string | undefined,
   fn: (store: FederatedReadStore) => T,
-  onWarning?: (message: string) => void,
+  options: WithFederatedReadStoreOptions = {},
 ): T {
-  const store = new FederatedReadStore({ hosts: cachedHostSources(localDbPath), onWarning })
+  const hosts = selectHosts(cachedHostSources(localDbPath), options.hostId)
+  const store = new FederatedReadStore({ hosts, onWarning: options.onWarning })
   try {
     return fn(store)
   } finally {
     store.close()
   }
+}
+
+// An unknown host is a caller mistake, not an empty result: answering with the
+// other machines' data would silently ignore the filter.
+function selectHosts(hosts: HostSource[], hostId: string | undefined): HostSource[] {
+  if (hostId === undefined) return hosts
+  const selected = hosts.filter((host) => host.hostId === hostId)
+  if (selected.length === 0) throw new ReadStoreError(`unknown host: ${hostId}`)
+  return selected
 }

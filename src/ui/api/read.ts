@@ -4,21 +4,24 @@
 // populated by /api/manifest (an id → ReplayBlobRef cache).
 
 import { readFileSync } from 'node:fs'
-import {
-  clampLimit,
-  clampOffset,
-  normalizeSource,
-  normalizeSources,
-  parseTimestamp,
-  type QueryFilters,
-  ReadStoreError,
-  type RecentActivityFilters,
-} from '../../mcp/read_store'
-import { withFederatedReadStore } from '../../mcp/read_store/federated'
 import { sliceRange } from '../../replay/range'
 import type { ReplayBlobRef, ReplayChunk, ReplayManifest } from '../../replay/store'
 import { withReplayStore } from '../../replay/store'
 import { cachedHostSources } from '../../store/hosts'
+import {
+  clampLimit,
+  clampOffset,
+  decodePeriodActivityCursor,
+  decodeRecentActivityCursor,
+  normalizeSource,
+  normalizeSources,
+  type PeriodActivityFilters,
+  parseTimestamp,
+  type QueryFilters,
+  ReadStoreError,
+  type RecentActivityFilters,
+} from '../../store/read_store'
+import { withFederatedReadStore } from '../../store/read_store/federated'
 import { defaultDbPath } from '../../util/paths'
 import { repairWebpRiffSize } from '../../util/webp'
 
@@ -190,8 +193,48 @@ export function handleReadRequest(req: Request, url: URL, ctx: ReadContext): Res
         app: url.searchParams.get('app') ?? undefined,
         limit: clampLimit(url.searchParams.get('limit')),
         includeEmpty: url.searchParams.get('includeEmpty') === '1',
+        // Groups run newest first, so a page resumes below the oldest one served.
+        beforeAt: decodeRecentActivityCursor(url.searchParams.get('cursor') ?? undefined)
+          ?.before_at,
       }
       const result = withFederatedReadStore(dbPathOf(ctx), (s) => s.recentActivity(filters))
+      return Response.json(result, { headers: ctx.headers() })
+    } catch (err) {
+      return readStoreError(err, ctx)
+    }
+  }
+
+  // Multi-day report. Unlike replay, sessions are built over every machine's
+  // rows merged together; `host` narrows that to one machine.
+  if (url.pathname === '/api/period-activity') {
+    try {
+      const from = parseTimestamp(url.searchParams.get('from'), 'from')
+      const to = parseTimestamp(url.searchParams.get('to'), 'to')
+      if (from === undefined || to === undefined) {
+        return new Response('period-activity requires from and to', {
+          status: 400,
+          headers: ctx.headers(),
+        })
+      }
+      if (to < from) {
+        return new Response('to must be greater than or equal to from', {
+          status: 400,
+          headers: ctx.headers(),
+        })
+      }
+      const sourcesParam = url.searchParams.get('sources')
+      const filters: PeriodActivityFilters = {
+        from,
+        to,
+        sources: normalizeSources(sourcesParam ? sourcesParam.split(',') : undefined),
+        app: url.searchParams.get('app') ?? undefined,
+        // Sessions carry excerpts, so a page is capped well below the shared limit.
+        limit: Math.min(50, clampLimit(url.searchParams.get('limit'))),
+        cursor: decodePeriodActivityCursor(url.searchParams.get('cursor') ?? undefined),
+      }
+      const result = withFederatedReadStore(dbPathOf(ctx), (s) => s.periodActivity(filters), {
+        hostId: url.searchParams.get('host') ?? undefined,
+      })
       return Response.json(result, { headers: ctx.headers() })
     } catch (err) {
       return readStoreError(err, ctx)

@@ -1,6 +1,6 @@
 // Pure unit tests for the input-parsing layer that sits in front of every
-// MCP read-store call. These functions normalize the loose JSON the MCP
-// server hands us (numbers-as-strings, ISO dates, source aliases) into the
+// read-store call. These functions normalize the loose input callers hand us
+// (numbers-as-strings, ISO dates, source aliases) into the
 // tight types the SQL builder expects. Bugs here are particularly painful
 // because they silently change result sets — wrong limit, wrong time
 // window, wrong source filter — without any obvious failure mode upstream.

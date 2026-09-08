@@ -1,4 +1,4 @@
-// Deterministic multi-day activity sessions for the period_activity MCP tool
+// Deterministic multi-day activity sessions for the period_activity report
 // (#86). Sessions reuse the recent_activity grouping; this module adds active
 // duration estimation, representative excerpts, observable project context,
 // and per-day aggregates. No semantic classification anywhere.

@@ -84,21 +84,6 @@ test('embeddings engine can be disabled with noop', () => {
   expect(cfg.processing.embeddings.engine).toBe('noop')
 })
 
-test('MCP auth is enabled by default', () => {
-  const cfg = loadConfig(tmpConfig('{}'))
-  expect(cfg.mcp.auth.enabled).toBe(true)
-})
-
-test('MCP auth can be explicitly disabled', () => {
-  const cfg = loadConfig(tmpConfig('{"mcp":{"auth":{"enabled":false}}}'))
-  expect(cfg.mcp.auth.enabled).toBe(false)
-})
-
-test('malformed MCP auth config falls back to enabled', () => {
-  const cfg = loadConfig(tmpConfig('{"mcp":{"auth":{"enabled":"nope"}}}'))
-  expect(cfg.mcp.auth.enabled).toBe(true)
-})
-
 test('lossy blob formats default to webp screenshots and webm audio', () => {
   const cfg = loadConfig(tmpConfig('{}'))
   expect(cfg.capture.screen.format).toBe('webp')
@@ -130,7 +115,9 @@ test('v3 whisper config migrates back to parakeet with a backup', () => {
 
   saveConfig(cfg, path)
   const backups = readdirSync(dirname(path)).filter(
-    (name) => name.startsWith(`${basename(path)}.v3-to-v5.`) && name.endsWith('.bak'),
+    (name) =>
+      name.startsWith(`${basename(path)}.v3-to-v${CURRENT_CONFIG_SCHEMA_VERSION}.`) &&
+      name.endsWith('.bak'),
   )
   expect(backups).toHaveLength(1)
 })

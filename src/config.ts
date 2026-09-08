@@ -51,15 +51,6 @@ export interface EngineConfig {
   options?: Record<string, unknown>
 }
 
-interface McpConfig {
-  transport: 'stdio' | 'http'
-  bind: string
-  port: number
-  auth: {
-    enabled: boolean
-  }
-}
-
 export interface UpdateConfig {
   // Check GitHub Releases for a newer version on `hpm start` and notify only —
   // never auto-install. Disable here, or set HPM_NO_UPDATE_CHECK=1 / run under
@@ -92,11 +83,10 @@ export interface Config {
     embeddings: EngineConfig
   }
   storage: StorageConfig
-  mcp: McpConfig
   update: UpdateConfig
 }
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 5
+export const CURRENT_CONFIG_SCHEMA_VERSION = 6
 
 // Storage layout before the multi-machine split. A config still pointing there
 // would silently keep writing outside the shared tree, so we refuse it instead
@@ -181,14 +171,6 @@ const defaultConfig: Config = {
     path: '~/hyprmnesia-sync',
     host_id: defaultHostId(),
     snapshot_interval_minutes: 5,
-  },
-  mcp: {
-    transport: 'stdio',
-    bind: '127.0.0.1',
-    port: 37373,
-    auth: {
-      enabled: true,
-    },
   },
   update: {
     check: true,
@@ -298,6 +280,7 @@ function migrateConfig(parsed: DeepPartial<Config>, path: string): void {
   if (version <= 2) migrateConfigV2ToV3(parsed)
   if (version <= 3) migrateConfigV3ToV4(parsed)
   if (version <= 4) migrateConfigV4ToV5(parsed)
+  if (version <= 5) migrateConfigV5ToV6(parsed)
 }
 
 // v0 carried a legacy `storage.encryption.enabled` flag. Encryption is gone, so
@@ -371,6 +354,14 @@ function migrateConfigV4ToV5(parsed: DeepPartial<Config>): void {
   delete raw.sync
   const storage = raw.storage as Record<string, unknown> | undefined
   if (storage) delete storage.encryption
+  parsed.schema_version = 5
+}
+
+// The protocol server is gone (replaced by the local UI's REST API); drop its
+// config block so a migrated file no longer carries settings nothing reads.
+function migrateConfigV5ToV6(parsed: DeepPartial<Config>): void {
+  const raw = parsed as Record<string, unknown>
+  delete raw.mcp
   parsed.schema_version = CURRENT_CONFIG_SCHEMA_VERSION
 }
 
@@ -465,19 +456,6 @@ function normalizeConfig(config: Config): Config {
     }
   }
 
-  if (config.mcp.transport !== 'stdio' && config.mcp.transport !== 'http')
-    config.mcp.transport = 'stdio'
-  if (typeof config.mcp.bind !== 'string' || config.mcp.bind.trim() === '')
-    config.mcp.bind = '127.0.0.1'
-  config.mcp.bind = config.mcp.bind.trim()
-  config.mcp.port = clampInt(config.mcp.port, 1, 65535, defaultConfig.mcp.port)
-  if (!config.mcp.auth || typeof config.mcp.auth !== 'object') {
-    config.mcp.auth = { ...defaultConfig.mcp.auth }
-  }
-  if (typeof config.mcp.auth.enabled !== 'boolean') {
-    config.mcp.auth.enabled = defaultConfig.mcp.auth.enabled
-  }
-
   if (!config.update || typeof config.update !== 'object') {
     config.update = { ...defaultConfig.update }
   }
@@ -501,7 +479,7 @@ export function ensureDefaultConfig(path?: string): string {
 }
 
 function configToYaml(config: Config = defaultConfig): string {
-  return `# Hyprmnesia configuration\n# Changes apply after restarting the related daemon or MCP server.\n\n${stringifyYaml(config)}`
+  return `# Hyprmnesia configuration\n# Changes apply after restarting the related daemon.\n\n${stringifyYaml(config)}`
 }
 
 function resolveConfigPath(path?: string): string {

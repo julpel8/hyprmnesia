@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { parseTimestamp, ReadStoreError } from '../mcp/read_store'
+import { cachedHostSources } from '../store/hosts'
+import { type IndexDb, openReadIndexDb } from '../store/index_db'
+import { parseTimestamp, ReadStoreError } from '../store/read_store'
 import {
   chunkSource,
   iso,
@@ -9,10 +11,8 @@ import {
   mimeForKind,
   resolveRowBlob,
   windowFromRow,
-} from '../mcp/read_store/format'
-import type { ChunkRow, SegmentRow, WindowPayload } from '../mcp/read_store/types'
-import { cachedHostSources } from '../store/hosts'
-import { type IndexDb, openReadIndexDb } from '../store/index_db'
+} from '../store/read_store/format'
+import type { ChunkRow, SegmentRow, WindowPayload } from '../store/read_store/types'
 import { expandHome } from '../util/paths'
 
 // How far before a replay range a screenshot may sit and still be shown as the

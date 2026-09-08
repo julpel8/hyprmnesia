@@ -53,7 +53,7 @@ export function desktopEntry(opts: { exec: string; tryExec: string; autostart: b
     'Icon=hyprmnesia',
     'Terminal=false',
     'Categories=Utility;AudioVideo;Recorder;',
-    'Keywords=memory;capture;screenshot;audio;recall;mcp;assistant;',
+    'Keywords=memory;capture;screenshot;audio;recall;assistant;',
     'StartupNotify=false',
     'X-GNOME-UsesNotifications=true',
   ]

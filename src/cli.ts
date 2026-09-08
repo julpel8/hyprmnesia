@@ -27,7 +27,6 @@ import {
   uninstallLauncher,
 } from './install/launcher'
 import { log } from './log'
-import { createDefaultMcpAuthStore, mcpAuthStatus, rotateMcpAuth, setupMcpAuth } from './mcp/auth'
 import { checkForUpdate, envOptOut, formatUpdateNotice, RELEASES_URL } from './update/check'
 import { VERSION } from './version'
 
@@ -149,8 +148,6 @@ usage:
   hpm audio <mic|system> [on|off|toggle]
                          switch one audio source on or off (default: toggle);
                          restarts the daemon when it is running
-  hpm mcp [flags]        run the read-only MCP server
-  hpm mcp auth <command> manage MCP local auth token
   hpm replay [--from <time> --to <time>]
                          open an interactive local replay window
   hpm ui [--no-open]     open the local Hyprmnesia web app (dashboard, search,
@@ -184,19 +181,6 @@ flags (for hpm/start):
   --no-mic               disable mic capture only
   --no-system-audio      disable system audio capture only
   --data-dir <path>      override storage path
-
-flags (for hpm mcp):
-  --config <path>        config file (default: ~/.hyprmnesia/config.yaml)
-  --db <path>            SQLite index path (default: ~/.hyprmnesia/index.db)
-  --transport <name>     MCP transport: stdio or http
-  --bind <addr>          HTTP bind address (default: 127.0.0.1)
-  --port <n>             HTTP port (default: 37373)
-  --no-auth              confirm running only when config mcp.auth.enabled=false
-
-commands (for hpm mcp auth):
-  setup                  create and print an MCP token once
-  status                 show MCP auth status without printing the token
-  rotate                 replace and print a new MCP token once
 
 flags (for hpm replay):
   --from <epoch_ms|iso>  replay start time (optional deep-link)
@@ -263,83 +247,6 @@ async function cmdCapture(flags: Record<string, string | boolean>) {
 }
 
 /**
- * Starts the read-only MCP server.
- *
- * Unlike normal runtime commands, MCP is a headless integration surface and
- * should not depend on tray or daemon state.
- */
-async function cmdMcp(flags: Record<string, string | boolean>, argv: string[]) {
-  const positionals = positionalArgs(argv, new Set(['config', 'db', 'transport', 'bind', 'port']))
-  if (positionals[0] === 'auth') {
-    cmdMcpAuth(positionals.slice(1), flags)
-    return
-  }
-
-  const configPath = typeof flags['config'] === 'string' ? flags['config'] : undefined
-  const cfg = loadConfig(configPath)
-  applyMcpFlags(cfg, flags)
-  if (flags['no-auth'] && cfg.mcp.auth.enabled) {
-    console.error('mcp: --no-auth requires mcp.auth.enabled: false in config.yaml')
-    process.exit(1)
-  }
-  if (!cfg.mcp.auth.enabled && !flags['no-auth']) {
-    console.error('mcp: MCP auth is disabled in config.yaml; pass --no-auth to confirm')
-    process.exit(1)
-  }
-  const { startMcpServer } = await import('./mcp/server')
-  await startMcpServer({
-    dbPath: typeof flags['db'] === 'string' ? flags['db'] : undefined,
-    transport: cfg.mcp.transport,
-    bind: cfg.mcp.bind,
-    port: cfg.mcp.port,
-    auth: {
-      enabled: cfg.mcp.auth.enabled,
-    },
-  })
-}
-
-function cmdMcpAuth(args: string[], flags: Record<string, string | boolean>): void {
-  const command = args[0]
-  const configPath = typeof flags['config'] === 'string' ? flags['config'] : undefined
-  const cfg = loadConfig(configPath)
-  const store = createDefaultMcpAuthStore()
-
-  if (command === 'setup') {
-    const result = setupMcpAuth(store)
-    if (result.alreadyConfigured) {
-      console.log('MCP auth token already configured.')
-      console.log('Run `hpm mcp auth rotate` to replace it.')
-      console.log(`backend: ${result.backend}`)
-      return
-    }
-    console.error('MCP auth token created. Copy it into your MCP client env as HPM_MCP_TOKEN.')
-    console.error(`backend: ${result.backend}`)
-    console.log(result.token)
-    return
-  }
-
-  if (command === 'status') {
-    const status = mcpAuthStatus(cfg.mcp.auth.enabled, store)
-    console.log(`MCP auth: ${status.enabled ? 'enabled' : 'disabled'}`)
-    console.log(`token: ${status.configured ? 'configured' : 'not configured'}`)
-    console.log(`backend: ${status.backend}`)
-    return
-  }
-
-  if (command === 'rotate') {
-    const result = rotateMcpAuth(store)
-    console.error('MCP auth token rotated. Copy it into your MCP client env as HPM_MCP_TOKEN.')
-    console.error(`backend: ${result.backend}`)
-    console.log(result.token)
-    return
-  }
-
-  console.error(`unknown MCP auth command: ${command ?? '(missing)'}`)
-  console.error('expected: setup, status, or rotate')
-  process.exit(1)
-}
-
-/**
  * Opens a temporary local browser replay for a captured time window.
  *
  * The UI server is read-only, tokenized, and foreground-bound so Ctrl-C can
@@ -385,29 +292,6 @@ async function cmdUi(flags: Record<string, string | boolean>) {
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
-  }
-}
-
-/**
- * Applies one-shot MCP transport overrides on top of persisted MCP config.
- */
-function applyMcpFlags(cfg: Config, flags: Record<string, string | boolean>) {
-  if (typeof flags['transport'] === 'string') {
-    const transport = flags['transport']
-    if (transport !== 'stdio' && transport !== 'http') {
-      console.error(`invalid MCP transport: ${transport} (expected stdio or http)`)
-      process.exit(1)
-    }
-    cfg.mcp.transport = transport
-  }
-  if (typeof flags['bind'] === 'string') cfg.mcp.bind = flags['bind']
-  if (typeof flags['port'] === 'string') {
-    const port = Number(flags['port'])
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      console.error(`invalid MCP port: ${flags['port']}`)
-      process.exit(1)
-    }
-    cfg.mcp.port = port
   }
 }
 
@@ -838,9 +722,6 @@ switch (cmd) {
     break
   case '_smoke-release':
     await cmdSmokeRelease()
-    break
-  case 'mcp':
-    await cmdMcp(flags, rest)
     break
   case 'replay':
     ensureTray()

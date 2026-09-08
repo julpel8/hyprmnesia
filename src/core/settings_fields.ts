@@ -259,33 +259,5 @@ export function settingsFields(config: Config): SettingField[] {
       kind: 'text',
       hint: 'blob/index directory',
     },
-    {
-      label: 'MCP transport',
-      path: ['mcp', 'transport'],
-      kind: 'enum',
-      choices: ['stdio', 'http'],
-      hint: 'server transport',
-    },
-    {
-      label: 'MCP bind',
-      path: ['mcp', 'bind'],
-      kind: 'text',
-      hint: 'HTTP address, local only until auth',
-    },
-    {
-      label: 'MCP port',
-      path: ['mcp', 'port'],
-      kind: 'number',
-      step: 1,
-      min: 1,
-      max: 65535,
-      hint: 'HTTP port',
-    },
-    {
-      label: 'MCP auth',
-      path: ['mcp', 'auth', 'enabled'],
-      kind: 'bool',
-      hint: 'require local token',
-    },
   ]
 }

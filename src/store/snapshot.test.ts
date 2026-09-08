@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUIDv7 } from 'bun'
-import { HyprmnesiaReadStore } from '../mcp/read_store'
 import { openChunkStore } from './db'
+import { HyprmnesiaReadStore } from './read_store'
 import { publishSnapshot } from './snapshot'
 
 const dirs: string[] = []
