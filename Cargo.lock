@@ -1887,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "hpm-asr"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "audiopipe",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "hpm-ocr"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "hpm-sck"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "hpm-tray"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "dirs 6.0.0",
  "image 0.25.10",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "hpm-util"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde_json",
 ]
