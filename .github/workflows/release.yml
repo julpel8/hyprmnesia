@@ -88,8 +88,10 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - windows-latest
-          - macos-latest
+          # macOS and Windows are disabled until the brand icons land in
+          # assets/brand (build.ts requires hyprmnesia.ico on Windows).
+          # - windows-latest
+          # - macos-latest
           - ubuntu-latest
           - ubuntu-24.04-arm
 
