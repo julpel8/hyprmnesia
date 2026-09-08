@@ -117,8 +117,8 @@ export function needsImageTranscode(opts: ImageQualityOptions): boolean {
 /**
  * Re-encodes a screenshot through ffmpeg to apply resolution and lossy quality.
  *
- * Used on the screenshot-desktop capture path (Windows/Linux), which cannot
- * downscale or set image quality on its own. On any failure the original buffer
+ * Used on the capture path, whose helpers emit full-size PNG or JPEG and
+ * cannot downscale or set image quality on their own. On any failure the original buffer
  * is returned so capture keeps working even when ffmpeg is unavailable.
  */
 export async function transcodeImage(input: Buffer, opts: ImageQualityOptions): Promise<Buffer> {

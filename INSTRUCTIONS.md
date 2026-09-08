@@ -39,7 +39,7 @@ tray helper, screen capture and audio capture:
 sudo apt install \
   build-essential cmake pkg-config \
   libxdo-dev libdbus-1-dev libgtk-3-dev libayatana-appindicator3-dev \
-  libssl-dev imagemagick ffmpeg
+  libssl-dev ffmpeg
 ```
 
 - `build-essential` + `cmake`: the OCR/ASR helpers compile C/C++ sources at
@@ -55,17 +55,16 @@ sudo apt install \
   Use `libappindicator3-dev` on older distros if the ayatana package is missing.
 - `libssl-dev`: the OCR/ASR helpers' `hf-hub` model downloader links against
   system OpenSSL via `openssl-sys`.
-- `imagemagick`: provides the `import` command that `screenshot-desktop`
-  invokes under the hood.
 - `ffmpeg`: needed for mic/system audio capture. The bundled `ffmpeg-static`
   binary lacks PulseAudio/PipeWire support, so on Linux Hyprmnesia uses the
   system `ffmpeg` (Debian/Ubuntu builds enable `libpulse` by default;
   `pipewire-pulse` provides the PA socket on modern desktops).
 
-Screen capture currently requires an **Xorg session** — `import` is X11-only.
-Wayland support is tracked in
-[#8](https://github.com/hyprmnesia/hyprmnesia/issues/8). To switch, log out
-and pick "Ubuntu on Xorg" (or your distro's equivalent) at the login screen.
+Screen capture on Linux requires a **Wayland session**. It goes through the
+xdg-desktop-portal ScreenCast interface via the `hpm-wlcap` helper, which asks
+once for permission and stores the restore token in `~/.hyprmnesia/`. There is
+no X11 backend: the old one shelled out to ImageMagick's `import` once per
+frame and has been removed.
 
 ## Multi-Device Storage (Syncthing)
 
@@ -425,7 +424,7 @@ writes JSON logs.
 
 |                | Windows                                | macOS (TODO)              | Linux  (TODO)                            |
 | -------------- | -------------------------------------- | ------------------- | ---------------------------------- |
-| Screen capture | OK                                     | OK                  | OK (X11), Wayland TBD              |
+| Screen capture | none                                   | OK                  | OK (Wayland portal), no X11        |
 | Mic            | OK (dshow)                             | OK (avfoundation)   | OK (pulse)                         |
 | System audio   | needs Screen Capturer Recorder         | needs BlackHole 2ch | `@DEFAULT_MONITOR@` via pulse      |
 | Window context | OK                                     | OK + URL            | OK on X11, none on Wayland         |

@@ -1,5 +1,4 @@
 import { randomUUIDv7 } from 'bun'
-import screenshot from 'screenshot-desktop'
 import type { ScreenCaptureConfig } from '../config'
 import type { EventBus, WindowContext } from '../core/events'
 import type { OcrEngine } from '../process/types'
@@ -55,10 +54,10 @@ async function prepareImageForStorage(
   return { image, ext: opts.format }
 }
 
-// Backend selection: macOS uses the ScreenCaptureKit helper (hpm-sck); Wayland
-// uses the xdg-desktop-portal ScreenCast helper (hpm-wlcap); everything else
-// falls back to screenshot-desktop, which shells out to ImageMagick's X11-only
-// `import`.
+// Backend selection: Wayland uses the xdg-desktop-portal ScreenCast helper
+// (hpm-wlcap), macOS the ScreenCaptureKit one (hpm-sck). There is no fallback —
+// the X11 path shelled out to ImageMagick's `import` once per frame and is
+// gone.
 export function startScreenCapture({
   cfg,
   blobs,
@@ -78,9 +77,9 @@ export function startScreenCapture({
     return { stop: () => {}, done: Promise.resolve() }
   }
 
-  if (process.platform === 'darwin' && sck) {
-    return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, sck, 'sck')
-  }
+  // if (process.platform === 'darwin' && sck) {
+  //   return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, sck, 'sck')
+  // }
 
   if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
     const imageFormat = captureImageFormat(cfg.format)
@@ -95,85 +94,15 @@ export function startScreenCapture({
     return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, wlcap, 'wlcap')
   }
 
-  let running = true
-  let wakeSleep: (() => void) | undefined
-
-  function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        wakeSleep = undefined
-        resolve()
-      }, ms)
-      wakeSleep = () => {
-        clearTimeout(timer)
-        wakeSleep = undefined
-        resolve()
-      }
-    })
-  }
-
-  const qualityOpts = { format: cfg.format, quality: cfg.quality, maxWidth: cfg.max_width }
-  const imageFormat = captureImageFormat(cfg.format)
-
-  async function tick() {
-    const start = Date.now()
-    try {
-      const raw = (await screenshot({ format: imageFormat })) as Buffer
-      const text = await ocr.process(raw)
-      const { image, ext } = await prepareImageForStorage(raw, imageFormat, qualityOpts)
-      const id = randomUUIDv7()
-      const blob = await blobs.write('screenshot', id, ext, image)
-      const at = Date.now()
-      const window = getWindow?.()
-      store.insert({
-        id,
-        kind: 'screenshot',
-        at,
-        blob: blob.rel,
-        bytes: image.length,
-        text,
-        capture_ms: at - start,
-        window,
-        ocr: { engine: ocr.name },
-      })
-      events.publish({
-        type: 'chunk',
-        source: 'screen',
-        at,
-        id,
-        path: blob.abs,
-        bytes: image.length,
-        text_len: text.length,
-        capture_ms: at - start,
-        window,
-      })
-    } catch (err) {
-      events.publish({ type: 'error', source: 'screen', at: Date.now(), message: String(err) })
-    }
-  }
-
-  async function loop() {
-    events.publish({
-      type: 'started',
-      source: 'screen',
-      at: Date.now(),
-      meta: { interval_ms: cfg.interval_ms, format: cfg.format },
-    })
-    while (running) {
-      await tick()
-      if (running) await sleep(cfg.interval_ms)
-    }
-    events.publish({ type: 'stopped', source: 'screen', at: Date.now() })
-  }
-
-  const done = loop()
-  return {
-    done,
-    stop: () => {
-      running = false
-      wakeSleep?.()
-    },
-  }
+  events.publish({
+    type: 'log',
+    at: Date.now(),
+    level: 'warn',
+    message: `screen capture unavailable on ${process.platform}${
+      process.platform === 'linux' ? ' without WAYLAND_DISPLAY' : ''
+    }; no capture backend for this session`,
+  })
+  return { stop: () => {}, done: Promise.resolve() }
 }
 
 function startWorkerScreen(

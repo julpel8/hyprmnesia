@@ -244,7 +244,6 @@ capture, OCR, and the Linux capture helper:
 sudo apt install -y \
   cmake \
   libxdo-dev \
-  imagemagick \
   ffmpeg \
   libgstreamer1.0-dev \
   libgstreamer-plugins-base1.0-dev \
@@ -257,8 +256,6 @@ sudo apt install -y \
   (faster-whisper) ASR helper (`asr/`). A C/C++ toolchain (`build-essential`)
   is also required; it is usually already present.
 - **`libxdo-dev`** - required to link the Rust tray helper (`tray/`).
-- **`imagemagick`** - provides the `import` command that `screenshot-desktop`
-  invokes under the hood.
 - **`ffmpeg`** - needed for mic and system-audio capture. The bundled
   `ffmpeg-static` binary lacks PulseAudio / PipeWire support, so on Linux
   Hyprmnesia uses the system `ffmpeg`. Debian/Ubuntu builds enable `libpulse`
@@ -284,10 +281,13 @@ automatically into `dist/native/` and should not be launched directly.
 
 ### Session requirement
 
-Screen capture currently requires an **Xorg** session. The `import` command is
-X11-only. Wayland support is tracked in
-[#8](https://github.com/hyprmnesia/hyprmnesia/issues/8). To switch sessions, log
-out and pick "Ubuntu on Xorg", or your distro's equivalent, at the login screen.
+Screen capture requires a **Wayland** session. It goes through the
+xdg-desktop-portal ScreenCast interface via the `hpm-wlcap` helper, which is why
+the GStreamer packages above are needed. The first run asks for permission once
+and keeps the restore token in `~/.hyprmnesia/`, so later runs are silent.
+
+There is no X11 backend. The old one called ImageMagick's `import` once per
+frame and has been removed.
 
 ### Verify
 
@@ -309,8 +309,13 @@ there.
 ### Troubleshooting
 
 **Screen capture fails on a fresh login.**
-You are most likely on a Wayland session. Log out and pick the Xorg variant of
-your desktop at the login screen, then try again.
+Check that the session really is Wayland: `echo $WAYLAND_DISPLAY` must print
+something. On X11 the daemon logs `screen capture unavailable` and records
+nothing but audio.
+
+**No screenshots, and the log shows the portal was refused.**
+The stored restore token no longer matches the session. Delete
+`~/.hyprmnesia/wayland-portal-token` and restart the daemon to be asked again.
 
 **Rust build fails with a missing `xdo.h`.**
 `libxdo-dev` is not installed. Run `sudo apt install libxdo-dev` and rebuild.
