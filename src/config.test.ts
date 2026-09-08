@@ -262,3 +262,9 @@ test('invalid blob formats fall back to lossy defaults and clamp bitrate', () =>
   expect(cfg.capture.audio.format).toBe('webm')
   expect(cfg.capture.audio.bitrate_kbps).toBe(256)
 })
+
+test('editing a loaded config leaves the defaults untouched', () => {
+  const edited = loadConfigForEditing(tmpConfig('{}'))
+  edited.capture.audio.mic.enabled = false
+  expect(loadConfigForEditing(tmpConfig('{}')).capture.audio.mic.enabled).toBe(true)
+})

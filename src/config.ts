@@ -238,10 +238,16 @@ const DEFAULT_EMBEDDING_MODEL = 'multilingual-e5-small'
 const DEFAULT_EMBEDDING_DIM = 384
 const SUPPORTED_EMBEDDING_ENGINES = new Set(['local', 'noop'])
 
+// Clones the base rather than sharing its nested objects: a loaded config is
+// edited in place by `hpm` flags, the settings editor, and the audio switches,
+// and those writes must not reach `defaultConfig`.
 function deepMerge<T>(base: T, override: DeepPartial<T>): T {
-  if (override === null || override === undefined) return base
-  if (typeof base !== 'object' || base === null) return (override as T) ?? base
-  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) }
+  if (typeof base !== 'object' || base === null) {
+    if (override === null || override === undefined) return base
+    return (override as T) ?? base
+  }
+  if (override === null || override === undefined) return structuredClone(base)
+  const out: Record<string, unknown> = structuredClone(base) as Record<string, unknown>
   for (const [k, v] of Object.entries(override)) {
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       out[k] = deepMerge((base as Record<string, unknown>)[k], v as DeepPartial<unknown>)

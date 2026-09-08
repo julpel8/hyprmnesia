@@ -258,6 +258,8 @@ bun run src/cli.ts logs       # tail the daemon log (default: last 10 + follow)
 bun run src/cli.ts stop       # stop the daemon
 bun run src/cli.ts status     # print daemon status
 bun run src/cli.ts status --json
+bun run src/cli.ts audio           # print the audio capture switches
+bun run src/cli.ts audio mic off   # switch mic capture off (on|off|toggle)
 bun run src/cli.ts mcp        # run the read-only MCP stdio server
 ```
 
@@ -271,6 +273,7 @@ bun run build                 # produces dist/hpm
 ./dist/hpm replay             # open the replay window (deep-link: --from --to)
 ./dist/hpm logs -n 50         # show last 50 log lines + follow
 ./dist/hpm status --json
+./dist/hpm audio system toggle # flip the system-audio switch
 ./dist/hpm mcp                # read-only MCP stdio server
 ```
 
@@ -348,6 +351,8 @@ Tray menu:
 - `Open Replay...`: opens the replay window (`hpm replay`)
 - `Start daemon`: starts background captures
 - `Stop daemon`: stops background captures
+- `Mic capture: on/off`: switches microphone capture (restarts a running daemon)
+- `System audio: on/off`: switches system audio capture (same)
 - `Open log folder`: opens `~/.hyprmnesia/`
 - `Enable launch at login` / `Disable launch at login`
 - `Quit Hyprmnesia`: removes the tray icon only; it does not stop captures
@@ -366,6 +371,11 @@ The daemon is a detached `hpm _capture` process controlled by local files:
 
 `hpm start` is guarded by a start lock, so concurrent invocations converge on
 one running daemon instead of spawning duplicates.
+
+Audio switches also live in the dashboard's Sources panel and in
+`hpm audio <mic|system> [on|off|toggle]`. All three write
+`capture.audio.<source>.enabled` in the config; because the daemon only reads
+capture config at startup, flipping a switch restarts it when it is running.
 
 ## Flags
 

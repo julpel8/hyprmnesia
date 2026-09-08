@@ -49,6 +49,23 @@ const TRAY_STOPPED_ICON: &[u8] = include_bytes!("../assets/tray-stopped.png");
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 const TRAY_STOPPED_ICON: &[u8] = include_bytes!("../assets/tray-stopped-unix.png");
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct CaptureSwitches {
+    mic: bool,
+    system: bool,
+}
+
+impl Default for CaptureSwitches {
+    // `hpm _status` always reports the switches; an older CLI (or unreadable
+    // config) simply renders both as on.
+    fn default() -> Self {
+        Self {
+            mic: true,
+            system: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct DaemonStatus {
     running: bool,
@@ -56,6 +73,8 @@ struct DaemonStatus {
     logs: PathBuf,
     #[allow(dead_code)]
     errors: PathBuf,
+    #[serde(default)]
+    capture: CaptureSwitches,
 }
 
 impl Default for DaemonStatus {
@@ -67,6 +86,7 @@ impl Default for DaemonStatus {
             pid: None,
             logs: log_dir.join("daemon.log"),
             errors: log_dir.join("daemon.err.log"),
+            capture: CaptureSwitches::default(),
         }
     }
 }
@@ -82,6 +102,8 @@ struct TrayMenu {
     status: MenuItem,
     start: MenuItem,
     stop: MenuItem,
+    mic: MenuItem,
+    system_audio: MenuItem,
     open_logs: MenuItem,
     startup: MenuItem,
     quit: MenuItem,
@@ -212,6 +234,9 @@ fn build_menu() -> (Menu, TrayMenu) {
         MenuItem::with_id(MenuId::new("open_dashboard"), "Open Dashboard", true, None);
     let start = MenuItem::with_id(MenuId::new("start"), "Start daemon", true, None);
     let stop = MenuItem::with_id(MenuId::new("stop"), "Stop daemon", false, None);
+    let mic = MenuItem::with_id(MenuId::new("mic"), "Mic capture: on", true, None);
+    let system_audio =
+        MenuItem::with_id(MenuId::new("system_audio"), "System audio: on", true, None);
     let open_logs = MenuItem::with_id(MenuId::new("open_logs"), "Open log folder", true, None);
     let startup = MenuItem::with_id(MenuId::new("startup"), "Enable launch at login", true, None);
     let quit = MenuItem::with_id(MenuId::new("quit"), "Quit Hyprmnesia", true, None);
@@ -223,6 +248,9 @@ fn build_menu() -> (Menu, TrayMenu) {
         &PredefinedMenuItem::separator(),
         &start,
         &stop,
+        &PredefinedMenuItem::separator(),
+        &mic,
+        &system_audio,
         &PredefinedMenuItem::separator(),
         &open_logs,
         &startup,
@@ -236,6 +264,8 @@ fn build_menu() -> (Menu, TrayMenu) {
             status,
             start,
             stop,
+            mic,
+            system_audio,
             open_logs,
             startup,
             quit,
@@ -260,6 +290,14 @@ fn handle_menu_event(
         }
         "stop" => {
             let _ = run_hpm(paths, &["stop"]);
+        }
+        // `hpm audio` writes the config and restarts the daemon itself when it
+        // is running; it never touches the tray.
+        "mic" => {
+            let _ = run_hpm(paths, &["audio", "mic", "toggle"]);
+        }
+        "system_audio" => {
+            let _ = run_hpm(paths, &["audio", "system", "toggle"]);
         }
         "open_logs" => {
             let dir = last_status
@@ -304,6 +342,10 @@ fn refresh_menu(
         let _ = menu.status.set_text(&label);
         let _ = menu.start.set_enabled(!status.running);
         let _ = menu.stop.set_enabled(status.running);
+        let _ = menu.mic.set_text(switch_label("Mic capture", status.capture.mic));
+        let _ = menu
+            .system_audio
+            .set_text(switch_label("System audio", status.capture.system));
         let _ = menu.open_logs.set_enabled(true);
         let _ = menu.startup.set_text(if startup_enabled(&paths.hpm) {
             "Disable launch at login"
@@ -329,6 +371,10 @@ fn refresh_menu(
     *last_state = new_state;
     *first_refresh = false;
     *last_status = status;
+}
+
+fn switch_label(name: &str, enabled: bool) -> String {
+    format!("{name}: {}", if enabled { "on" } else { "off" })
 }
 
 fn notify_transition(from: TrayState, to: TrayState, pid: Option<u32>) {

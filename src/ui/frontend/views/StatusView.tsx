@@ -28,7 +28,17 @@ function VuMeter({ label, db }: { label: string; db: number }) {
   )
 }
 
-function SourceRow({ name, source }: { name: string; source: SourceStatus | undefined }) {
+function SourceRow({
+  name,
+  source,
+  onToggle,
+  busy,
+}: {
+  name: string
+  source: SourceStatus | undefined
+  onToggle?: (enabled: boolean) => void
+  busy?: boolean
+}) {
   const state = !source?.enabled ? 'disabled' : source.running ? 'running' : 'stopped'
   return (
     <div className="source-row">
@@ -39,6 +49,19 @@ function SourceRow({ name, source }: { name: string; source: SourceStatus | unde
         {source?.last_chunk_at ? `chunk ${ago(source.last_chunk_at)}` : ''}
       </span>
       {source?.last_error && <span className="source-error">{source.last_error}</span>}
+      {onToggle ? (
+        <label className="switch" title={`turn ${name} capture ${source?.enabled ? 'off' : 'on'}`}>
+          <input
+            type="checkbox"
+            checked={source?.enabled === true}
+            disabled={busy}
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          <span className="switch-track" />
+        </label>
+      ) : (
+        <span />
+      )}
     </div>
   )
 }
@@ -61,6 +84,20 @@ export function StatusView() {
   useEffect(() => {
     void refreshLogs()
   }, [refreshLogs])
+
+  // Audio switches write the config and restart a running daemon server-side;
+  // the SSE status stream reports the new enabled/running state on its own.
+  const toggleAudio = useCallback(async (source: 'mic' | 'system', enabled: boolean) => {
+    setBusy(source)
+    setError('')
+    try {
+      await postJson(`/api/capture/${source}`, { enabled })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }, [])
 
   const control = useCallback(
     async (action: 'start' | 'stop' | 'restart') => {
@@ -113,9 +150,22 @@ export function StatusView() {
       {error && <div className="error-line">{error}</div>}
 
       <section className="panel">
-        <h3>Sources</h3>
+        <div className="panel-head">
+          <h3>Sources</h3>
+          <span className="panel-note">audio switches restart a running daemon</span>
+        </div>
         {SOURCES.map((name) => (
-          <SourceRow key={name} name={name} source={status?.sources?.[name]} />
+          <SourceRow
+            key={name}
+            name={name}
+            source={status?.sources?.[name]}
+            busy={busy !== null}
+            onToggle={
+              name === 'screen'
+                ? undefined
+                : (enabled) => void toggleAudio(name as 'mic' | 'system', enabled)
+            }
+          />
         ))}
       </section>
 

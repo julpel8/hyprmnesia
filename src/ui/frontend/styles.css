@@ -331,12 +331,63 @@ input {
   justify-content: space-between;
   align-items: center;
 }
+.panel-note {
+  color: var(--muted);
+  font-size: 12px;
+}
 .source-row {
   display: grid;
-  grid-template-columns: 14px 90px 80px 1fr;
+  grid-template-columns: 14px 90px 80px 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 4px 0;
+}
+/* Checkbox-driven switch: the native input stays focusable but invisible, and
+   the track/knob is drawn by the sibling span. */
+.switch {
+  justify-self: end;
+  display: inline-flex;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.switch-track {
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: #3a444f;
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background 120ms ease;
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 120ms ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--accent-2);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.switch input:disabled + .switch-track {
+  opacity: 0.4;
+  cursor: default;
 }
 .dot {
   width: 10px;

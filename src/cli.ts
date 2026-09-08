@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, watch } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { type Config, ensureDefaultConfig, loadConfig } from './config'
+import { audioCaptureState, isAudioSource, setAudioCapture } from './core/capture_toggle'
 import {
   clearStopRequest,
   daemonPid,
@@ -144,6 +145,10 @@ usage:
   hpm stop               stop the running daemon
   hpm quit               stop the daemon and quit the tray icon
   hpm status [--json]    print daemon status
+  hpm audio [status]     print the mic / system audio capture switches
+  hpm audio <mic|system> [on|off|toggle]
+                         switch one audio source on or off (default: toggle);
+                         restarts the daemon when it is running
   hpm mcp [flags]        run the read-only MCP server
   hpm mcp auth <command> manage MCP local auth token
   hpm replay [--from <time> --to <time>]
@@ -455,6 +460,42 @@ function cmdStop() {
 }
 
 /**
+ * Prints or flips the mic / system audio capture switches.
+ *
+ * Capture config is only read when the daemon starts, so a flip restarts a
+ * running daemon. Like `hpm stop`, this never launches the tray: the tray calls
+ * this command itself.
+ */
+function cmdAudio(args: string[]) {
+  const source = args[0]
+  if (source === undefined || source === 'status') {
+    const state = audioCaptureState()
+    console.log(`mic capture: ${state.mic ? 'on' : 'off'}`)
+    console.log(`system audio: ${state.system ? 'on' : 'off'}`)
+    return
+  }
+  if (!isAudioSource(source)) {
+    console.error(`unknown audio source: ${source}`)
+    console.error('expected: mic, system, or status')
+    process.exit(1)
+  }
+  const action = args[1] ?? 'toggle'
+  if (action !== 'on' && action !== 'off' && action !== 'toggle') {
+    console.error(`unknown audio command: ${action}`)
+    console.error('expected: on, off, or toggle')
+    process.exit(1)
+  }
+  const enabled = action === 'toggle' ? undefined : action === 'on'
+  const state = setAudioCapture(source, enabled)
+  const label = source === 'mic' ? 'mic capture' : 'system audio'
+  console.log(`${label}: ${state[source] ? 'on' : 'off'}`)
+  if (!isDaemonAlive()) return
+  stopDaemon()
+  const pid = spawnDaemon()
+  console.log(`daemon restarted (pid ${pid})`)
+}
+
+/**
  * Requests a graceful tray quit. Pair with `cmdStop()` for a full shutdown —
  * the `quit` command stops the daemon first, then signals the tray.
  *
@@ -508,12 +549,19 @@ function cmdAutostart(args: string[]) {
 function statusPayload() {
   const pid = daemonPid()
   const running = pid !== undefined && isDaemonAlive()
+  let capture = { mic: true, system: true }
+  try {
+    capture = audioCaptureState()
+  } catch {
+    // Unreadable config: report both switches on rather than failing status.
+  }
   return {
     running,
     pid: running ? pid : null,
     logs: LOG_FILE,
     errors: process.platform === 'win32' ? ERR_LOG_FILE : LOG_FILE,
     levels: readLevels(),
+    capture,
   }
 }
 
@@ -529,15 +577,16 @@ function cmdStatus(flags: Record<string, string | boolean>) {
   const pid = daemonPid()
   if (pid === undefined) {
     console.log('daemon: not running')
-    return
-  }
-  if (isDaemonAlive()) {
+  } else if (isDaemonAlive()) {
     console.log(`daemon: running (pid ${pid})`)
     console.log(`logs: ${LOG_FILE}`)
     if (process.platform === 'win32') console.log(`errors: ${ERR_LOG_FILE}`)
   } else {
     console.log(`daemon: stale pid ${pid} (process dead, file will be cleaned up on next start)`)
   }
+  const capture = audioCaptureState()
+  console.log(`mic capture: ${capture.mic ? 'on' : 'off'}`)
+  console.log(`system audio: ${capture.system ? 'on' : 'off'}`)
 }
 
 /**
@@ -783,6 +832,9 @@ switch (cmd) {
     break
   case '_status':
     cmdStatus(flags)
+    break
+  case 'audio':
+    cmdAudio(positionalArgs(rest, new Set()))
     break
   case '_smoke-release':
     await cmdSmokeRelease()

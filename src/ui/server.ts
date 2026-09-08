@@ -13,6 +13,7 @@ import {
   setReplayTranscriptionSuppression,
 } from '../core/transcription_suppression'
 import type { ReplayBlobRef } from '../replay/store'
+import { handleCaptureRequest } from './api/capture'
 import { handleConfigRequest } from './api/config'
 import { handleDaemonRequest } from './api/daemon'
 import { handleEventsRequest } from './api/events'
@@ -122,6 +123,9 @@ export async function startUiServer(options: UiServerOptions): Promise<void> {
 
       const config = await handleConfigRequest(req, url, { orchestrator, headers: uiHeaders })
       if (config) return config
+
+      const capture = await handleCaptureRequest(req, url, { orchestrator, headers: uiHeaders })
+      if (capture) return capture
 
       const read = handleReadRequest(req, url, {
         dbPath,
