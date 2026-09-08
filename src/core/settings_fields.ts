@@ -27,10 +27,29 @@ function getSettingValue(config: Config, path: SettingPath): unknown {
   return cur
 }
 
+// Kept in sync with SUPPORTED_TRANSCRIPTION_ENGINES in src/config.ts and with
+// the model sets in src/process/transcription/native_asr.ts.
+const ASR_ENGINES = ['parakeet', 'whisper'] as const
+const PARAKEET_MODELS = ['parakeet-tdt-0.6b-v3'] as const
+const WHISPER_MODELS = [
+  'whisper-large-v3-turbo',
+  'whisper-large-v3',
+  'whisper-medium',
+  'whisper-small',
+  'whisper-base',
+  'whisper-tiny',
+] as const
+
+function modelsFor(engine: string): readonly string[] {
+  return engine === 'whisper' ? WHISPER_MODELS : PARAKEET_MODELS
+}
+
 export function settingsFields(config: Config): SettingField[] {
   const txEngine = String(getSettingValue(config, ['processing', 'transcription', 'engine']))
+  // No `compare` key means no second engine; 'off' is what the editor writes to
+  // remove it again.
   const compareEngine = String(
-    getSettingValue(config, ['processing', 'transcription', 'compare', 'engine']) ?? 'noop',
+    getSettingValue(config, ['processing', 'transcription', 'compare', 'engine']) ?? 'off',
   )
   return [
     {
@@ -185,48 +204,57 @@ export function settingsFields(config: Config): SettingField[] {
       hint: 'tesseract lang, e.g. eng/fra',
     },
     {
+      label: 'Audio device',
+      path: ['processing', 'transcription', 'device'],
+      kind: 'enum',
+      choices: ['gpu', 'cpu'],
+      hint:
+        txEngine === 'off' ? 'nothing to run' : 'gpu = ggml/Vulkan servers, cpu = hpm-asr worker',
+    },
+    {
       label: 'Audio engine',
       path: ['processing', 'transcription', 'engine'],
       kind: 'enum',
-      choices: ['parakeet', 'noop'],
-      hint: 'live ASR engine',
+      choices: ['off', ...ASR_ENGINES],
+      hint: 'live ASR engine, or off to stop transcribing',
     },
     {
       label: 'Audio model',
       path: ['processing', 'transcription', 'options', 'model'],
       kind: 'enum',
-      choices: ['parakeet-tdt-0.6b-v3'],
-      hint: txEngine === 'noop' ? 'ignored by noop' : 'Parakeet model',
+      choices: modelsFor(txEngine),
+      hint: `${txEngine} model`,
+    },
+    {
+      label: 'Audio language',
+      path: ['processing', 'transcription', 'options', 'language'],
+      kind: 'text',
+      hint:
+        txEngine === 'whisper'
+          ? 'auto, or a code like fr/en'
+          : 'Parakeet is multilingual, no hint needed',
     },
     {
       label: 'Compare engine',
       path: ['processing', 'transcription', 'compare', 'engine'],
       kind: 'enum',
-      choices: ['noop', 'whisper'],
-      hint:
-        txEngine === 'noop'
-          ? 'needs an audio engine first'
-          : 'second engine, shown beside the first',
+      // The primary's own family is not offered: the same model twice produces
+      // the same text and nothing to compare.
+      choices: ['off', ...ASR_ENGINES.filter((engine) => engine !== txEngine)],
+      hint: txEngine === 'off' ? 'needs a first engine' : 'second engine, shown beside the first',
     },
     {
       label: 'Compare model',
       path: ['processing', 'transcription', 'compare', 'options', 'model'],
       kind: 'enum',
-      choices: [
-        'whisper-large-v3-turbo',
-        'whisper-large-v3',
-        'whisper-medium',
-        'whisper-small',
-        'whisper-base',
-        'whisper-tiny',
-      ],
-      hint: compareEngine === 'noop' ? 'compare engine is off' : 'Whisper model to compare against',
+      choices: modelsFor(compareEngine),
+      hint: compareEngine === 'off' ? 'no second engine' : `${compareEngine} model to compare with`,
     },
     {
       label: 'Compare language',
       path: ['processing', 'transcription', 'compare', 'options', 'language'],
       kind: 'text',
-      hint: compareEngine === 'noop' ? 'compare engine is off' : 'auto, or a code like fr/en',
+      hint: compareEngine === 'whisper' ? 'auto, or a code like fr/en' : 'Whisper only',
     },
     {
       label: 'Live ASR',

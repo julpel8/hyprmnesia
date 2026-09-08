@@ -352,6 +352,7 @@ processing:
       lang: eng
   transcription:
     engine: parakeet
+    device: gpu
     options:
       model: parakeet-tdt-0.6b-v3
       live:
@@ -361,12 +362,6 @@ processing:
         max_segment_ms: 6000
         silence_ms: 700
         rms_gate: 0.003
-    compare:
-      engine: noop
-      options:
-        model: whisper-large-v3-turbo
-        language: auto
-        compute_type: int8
 storage:
   path: ~/hyprmnesia-sync
   host_id: rpi5
@@ -379,21 +374,68 @@ how often the live database is republished there. See
 [Multi-Device Storage](#multi-device-storage-syncthing).
 
 OCR engines: `auto`, `tesseract`, `noop`.
-Transcription engines: `parakeet`, `whisper`, `noop`. Old `auto` configs are
-treated as Parakeet for compatibility; `whisper-cli` is no longer used in the
-normal runtime path.
+Transcription engines: `parakeet`, `whisper`, or `off`. Either engine can be the
+main one. `off` keeps recording audio and stops transcribing it; the old `noop`
+name means the same thing. Old `auto` configs are treated as Parakeet, and
+`whisper-cli` is no longer used in the normal runtime path.
 Parakeet model: `parakeet-tdt-0.6b-v3`. Whisper models are the faster-whisper
 CTranslate2 ones, `whisper-large-v3-turbo` down to `whisper-tiny`. The ASR
 helper auto-downloads a model to the Hugging Face cache on first use; capture
 continues while it is loading, but audio recorded before the model is ready is
 not transcribed.
 
+### Where transcription runs
+
+`processing.transcription.device` picks the backend for both engines.
+
+`gpu` (the default) runs the ggml servers over Vulkan, which reaches an Intel,
+AMD or NVIDIA GPU through one backend. Parakeet is served by `parakeet-server`
+from parakeet.cpp, Whisper by `whisper-server` from whisper.cpp. Each loads its
+model once and keeps it resident; the daemon posts one WAV per stretch of
+speech. Install them with:
+
+```sh
+bun run scripts/setup-gpu-asr.ts --models medium
+```
+
+That drops the servers in `dist/native/gpu` and the models in
+`~/.hyprmnesia/gpu-models`. parakeet.cpp publishes a Vulkan binary, whisper.cpp
+does not, so whisper.cpp is compiled by the script; the shader compiler it needs
+is unpacked from its Debian package into a scratch prefix, so nothing is
+installed system-wide and no root is required. The machine needs `libvulkan1`, a
+Vulkan driver (`mesa-vulkan-drivers` for Intel and AMD), `cmake` and a C++
+compiler.
+
+`cpu` runs the bundled `hpm-asr` worker instead: CTranslate2 for Whisper, ONNX
+for Parakeet, no GPU. Whisper there costs several times the duration of the
+audio it transcribes, because Whisper encodes a fixed 30-second window whatever
+the segment length.
+
+Segmentation moves with the device. On `cpu` the Rust worker cuts speech with
+webrtc-vad; on `gpu` the daemon does it, since the servers only transcribe a
+buffer handed to them. Both read the same `live` settings.
+
 ### Running two engines at once
 
 `processing.transcription.compare` names a second engine that transcribes the
-same audio as the first, so both transcripts can be read side by side. Set it to
-`whisper` (or `noop` to turn it off) and both Live and Replay show the two takes
-on each stretch of speech, labelled by engine.
+same audio as the first, so both transcripts can be read side by side:
+
+```yaml
+  transcription:
+    engine: parakeet
+    options:
+      model: parakeet-tdt-0.6b-v3
+    compare:
+      engine: whisper
+      options:
+        model: whisper-large-v3-turbo
+        language: fr
+```
+
+Live and Replay then show the two takes on each stretch of speech, labelled by
+engine. There is no key to set to turn this off: delete `compare` and only one
+engine runs. The settings editor writes `off` for the same effect, which
+normalizeConfig turns into a missing key.
 
 Both engines are handed identical audio and the primary engine's `live`
 segmentation settings, which is what makes their segments start and end together

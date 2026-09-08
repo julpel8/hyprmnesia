@@ -45,11 +45,22 @@ export interface EngineConfig {
   options?: Record<string, unknown>
 }
 
+// 'cpu' runs the bundled hpm-asr worker (CTranslate2 for Whisper, ONNX for
+// Parakeet). 'gpu' runs the ggml servers on Vulkan, which reaches an Intel,
+// AMD or NVIDIA GPU through the one backend.
+export type TranscriptionDevice = 'cpu' | 'gpu'
+
 export interface TranscriptionConfig extends EngineConfig {
-  // Optional second ASR engine fed the very same PCM frames as `engine`, so the
-  // two transcripts can be read side by side in Live and Replay. `noop` turns it
-  // off. Its segments are stored and displayed but never feed chunk text,
-  // search or embeddings: the primary engine stays the one recording says.
+  // Where both engines run. The compare engine never gets its own device: two
+  // models on one GPU already share it, and splitting them across devices would
+  // make their timings meaningless next to each other.
+  device?: TranscriptionDevice
+
+  // Second ASR engine fed the very same PCM frames as `engine`, so the two
+  // transcripts can be read side by side in Live and Replay. Absent means no
+  // second engine; there is no off switch to set, the key is simply not there.
+  // Its segments are stored and displayed but never feed chunk text, search or
+  // embeddings: the primary engine stays the one the recording says.
   compare?: EngineConfig
 }
 
@@ -158,16 +169,11 @@ const defaultConfig: Config = {
           rms_gate: 0.003,
         },
       },
-      // Off by default: a second engine doubles model memory and CPU per
-      // segment. Set `engine: whisper` to read both transcripts side by side.
-      compare: {
-        engine: 'noop',
-        options: {
-          model: 'whisper-large-v3-turbo',
-          language: 'auto',
-          compute_type: 'int8',
-        },
-      },
+      // Vulkan by default: the CPU path takes several times longer than the
+      // audio it transcribes on anything but Parakeet.
+      device: 'gpu',
+      // No `compare` key by default: a second engine doubles model memory and
+      // CPU per segment, so it only exists once someone adds it.
     },
     embeddings: {
       engine: 'local',
@@ -226,7 +232,14 @@ const LEGACY_WHISPER_MODEL_REMAP: Record<string, string> = {
 }
 const DEFAULT_PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3'
 const LEGACY_TRANSCRIPTION_ENGINES = new Set(['auto'])
-const SUPPORTED_TRANSCRIPTION_ENGINES = new Set(['whisper', 'parakeet', 'noop'])
+// The two real engines. 'off' is accepted alongside them and means no
+// transcription at all: audio is still captured and stored, nothing is
+// transcribed. The retired 'noop' name maps onto it.
+const ASR_ENGINES = new Set(['whisper', 'parakeet'])
+const SUPPORTED_TRANSCRIPTION_ENGINES = new Set([...ASR_ENGINES, 'off'])
+// A second engine can only be a real one: 'off' there means the `compare` key
+// is dropped and a single engine runs.
+const COMPARE_ENGINES = ASR_ENGINES
 
 const DEFAULT_EMBEDDING_MODEL = 'multilingual-e5-small'
 const DEFAULT_EMBEDDING_DIM = 384
@@ -345,9 +358,10 @@ function migrateConfigV2ToV3(parsed: DeepPartial<Config>): void {
 // file saying whisper cannot express a deliberate choice — flip it (and the
 // legacy 'auto' name) back to the parakeet default. Whisper-on-CPU (the only
 // CTranslate2 build we ship) is too slow for live transcription, while Parakeet
-// stays usable without a GPU. Only 'noop' is an explicit opt-out worth
-// preserving; normalizeConfig then drops the whisper-only language/compute_type
-// options and pins the parakeet model.
+// stays usable without a GPU. 'noop' was the explicit opt-out at the time and is
+// preserved here for the later steps to see; it is no longer a real engine, so
+// normalizeConfig maps it to the default. normalizeConfig then drops the
+// whisper-only language/compute_type options and pins the parakeet model.
 function migrateConfigV3ToV4(parsed: DeepPartial<Config>): void {
   const tx = parsed.processing?.transcription as
     | { engine?: unknown; options?: Record<string, unknown> }
@@ -378,11 +392,11 @@ function migrateConfigV5ToV6(parsed: DeepPartial<Config>): void {
   parsed.schema_version = 6
 }
 
-// A second ASR engine can now run alongside the first. Seed the block, off, so
-// the file shows the option exists; normalizeConfig fills in its model options.
+// A second ASR engine can now run alongside the first, named by
+// `processing.transcription.compare`. Nothing to migrate: a file without the key
+// has no second engine, which is the default. The short-lived v7 files that
+// carried `compare: { engine: noop }` are cleaned up by normalizeConfig.
 function migrateConfigV6ToV7(parsed: DeepPartial<Config>): void {
-  const tx = parsed.processing?.transcription as { engine?: unknown; compare?: unknown } | undefined
-  if (tx && !tx.compare) tx.compare = { engine: 'noop' }
   parsed.schema_version = CURRENT_CONFIG_SCHEMA_VERSION
 }
 
@@ -390,9 +404,11 @@ function migrateConfigV6ToV7(parsed: DeepPartial<Config>): void {
 // primary engine and the optional compare engine, which accept the same options
 // because they run the same worker binary.
 function normalizeTranscriptionEngine(slot: EngineConfig): void {
+  // 'noop' was what turning transcription off used to be called.
+  if (slot.engine === 'noop') slot.engine = 'off'
   if (LEGACY_TRANSCRIPTION_ENGINES.has(slot.engine)) slot.engine = 'parakeet'
   if (!SUPPORTED_TRANSCRIPTION_ENGINES.has(slot.engine)) slot.engine = 'parakeet'
-  if (slot.engine === 'noop') return
+  if (slot.engine === 'off') return
   slot.options ??= {}
   const options = slot.options
   if (slot.engine === 'whisper') {
@@ -422,17 +438,29 @@ function normalizeTranscriptionEngine(slot: EngineConfig): void {
   }
 }
 
-// The compare slot always exists so the settings UI has a path to write. It is
-// forced off when the primary is off (nothing to compare against) or when it
-// names the primary's own family (two runs of the same model produce the same
-// text and would collide on the `engine` recorded per segment). Segmentation is
-// deliberately not configurable here: both engines share the primary's `live`
-// settings so their segments line up and can be read as pairs.
-function normalizeCompareEngine(tx: TranscriptionConfig): void {
-  if (!tx.compare || typeof tx.compare !== 'object') tx.compare = { engine: 'noop', options: {} }
+// There is no second engine unless `compare` names one. The key is dropped when
+// it is empty, when it is turned off, and when it names the primary's own family
+// (two runs of the same model produce the same text and would collide on the
+// `engine` recorded per segment). Segmentation is deliberately not configurable
+// here: both engines share the primary's `live` settings so their segments line
+// up and can be read as pairs.
+function normalizeCompare(tx: TranscriptionConfig): void {
   const compare = tx.compare
+  // Nothing to compare against when the first engine is off either.
+  if (
+    tx.engine === 'off' ||
+    !compare ||
+    typeof compare !== 'object' ||
+    !COMPARE_ENGINES.has(compare.engine)
+  ) {
+    delete tx.compare
+    return
+  }
   normalizeTranscriptionEngine(compare)
-  if (tx.engine === 'noop' || compare.engine === tx.engine) compare.engine = 'noop'
+  if (compare.engine === tx.engine) {
+    delete tx.compare
+    return
+  }
   compare.options ??= {}
   delete compare.options.live
 }
@@ -478,18 +506,19 @@ function normalizeConfig(config: Config): Config {
   )
 
   const tx = config.processing.transcription
+  if (tx.device !== 'cpu' && tx.device !== 'gpu') tx.device = 'gpu'
   normalizeTranscriptionEngine(tx)
-  if (tx.engine !== 'noop') {
-    tx.options ??= {}
-    tx.options.live = deepMerge(
-      (defaultConfig.processing.transcription.options?.live ?? {}) as Record<string, unknown>,
-      (tx.options.live && typeof tx.options.live === 'object' ? tx.options.live : {}) as Record<
-        string,
-        unknown
-      >,
-    )
-  }
-  normalizeCompareEngine(tx)
+  tx.options ??= {}
+  // The segmentation settings are kept even when transcription is off, so
+  // turning it back on does not start from defaults.
+  tx.options.live = deepMerge(
+    (defaultConfig.processing.transcription.options?.live ?? {}) as Record<string, unknown>,
+    (tx.options.live && typeof tx.options.live === 'object' ? tx.options.live : {}) as Record<
+      string,
+      unknown
+    >,
+  )
+  normalizeCompare(tx)
   const emb = config.processing.embeddings
   if (!emb || typeof emb !== 'object') {
     config.processing.embeddings = deepMerge(defaultConfig.processing.embeddings, {})
