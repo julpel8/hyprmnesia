@@ -1,10 +1,10 @@
 import { startAudioCapture } from '../capture/audio'
-import { createSckBus, type SckBus } from '../capture/sck'
 import { startScreenCapture } from '../capture/screen'
 import type { Config } from '../config'
 import { EmbeddingQueue } from '../process/embedding_queue'
 import { makeEmbedding } from '../process/embeddings'
 import { makeOcr } from '../process/ocr'
+import { OcrQueue } from '../process/ocr_queue'
 import { makeTranscription } from '../process/transcription'
 import { TranscriptionQueue } from '../process/transcription_queue'
 import { makeBlobStore } from '../store/blobs'
@@ -71,12 +71,12 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
   const embedding = makeEmbedding(cfg.processing.embeddings, events)
   let transcriptionQueue: TranscriptionQueue | undefined
   let embeddingQueue: EmbeddingQueue | undefined
+  let ocrQueue: OcrQueue | undefined
 
   let running = false
   let stopping: Promise<void> | undefined
   let storeClosed = false
   let windowTracker: WindowTracker | undefined
-  let sck: SckBus | undefined
   const runners: Runner[] = []
   const sourceStatus: Record<Source, SourceStatus> = {
     screen: { enabled: cfg.capture.screen.enabled, running: false },
@@ -121,23 +121,10 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
     embeddingQueue = new EmbeddingQueue(embedding, store, events, embeddingQueueOptions(cfg))
     await embeddingQueue.start()
 
-    const wantSckScreen = process.platform === 'darwin' && cfg.capture.screen.enabled
-    const wantSckSystemAudio = process.platform === 'darwin' && cfg.capture.audio.system.enabled
-    if (wantSckScreen || wantSckSystemAudio) {
-      const imageFormat = cfg.capture.screen.format === 'webp' ? 'png' : cfg.capture.screen.format
-      sck = createSckBus(
-        {
-          sampleRate: cfg.capture.audio.sample_rate,
-          channelCount: 2,
-          frameIntervalMs: cfg.capture.screen.interval_ms,
-          imageFormat,
-          jpegQuality: cfg.capture.screen.quality,
-          captureAudio: wantSckSystemAudio,
-          captureVideo: wantSckScreen,
-        },
-        events,
-      )
-    }
+    // Reads the text of screenshots after they are stored. Capture never waits
+    // on it, so a slow engine costs searchable text, never frames.
+    ocrQueue = new OcrQueue(ocr, store, events, { hostDir: hostDir(cfg) })
+    ocrQueue.start()
 
     const screen = startScreenCapture({
       cfg: cfg.capture.screen,
@@ -145,7 +132,6 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       store,
       ocr,
       events,
-      sck,
       getWindow: () => windowTracker?.current(),
     })
     const audio = startAudioCapture({
@@ -154,7 +140,6 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       store,
       transcription: transcriptionQueue,
       events,
-      sck,
       getWindow: () => windowTracker?.current(),
     })
     runners.push(screen, audio)
@@ -200,27 +185,17 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       transcriptionQueue = undefined
       const activeEmbeddingQueue = embeddingQueue
       embeddingQueue = undefined
+      const activeOcrQueue = ocrQueue
+      ocrQueue = undefined
 
       for (const r of activeRunners) r.stop()
       windowTracker?.stop()
       windowTracker = undefined
 
       await Promise.allSettled(activeRunners.map((r) => r.done))
-      if (sck) {
-        try {
-          await sck.stop()
-        } catch (err) {
-          events.publish({
-            type: 'error',
-            source: 'screen',
-            at: Date.now(),
-            message: `sck stop: ${String(err)}`,
-          })
-        }
-        sck = undefined
-      }
       await activeQueue?.stop()
       await activeEmbeddingQueue?.stop()
+      await activeOcrQueue?.stop()
 
       if (snapshotTimer) {
         clearInterval(snapshotTimer)

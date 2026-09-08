@@ -67,6 +67,12 @@ interface TranscriptSegmentRow {
   text: string
   engine: string
   transcribe_ms: number
+  // 'compare' rows come from the optional second ASR engine. They are stored so
+  // Live and Replay can show both transcripts, but they stay out of the chunk
+  // text, the FTS index and the embedding queue: only the primary engine's
+  // words are what the recording says. Omitted means primary, matching the
+  // column default.
+  role?: 'primary' | 'compare'
 }
 
 export interface ChunkStore {
@@ -87,11 +93,25 @@ export interface ChunkStore {
   // trigger only re-indexes once. Called once per audio chunk today; designed
   // to also tolerate repeated calls per id for future live transcription.
   updateText(id: string, text: string, audioEngine?: string): void
+  // Screenshots stored before their text was read, oldest first. Capture writes
+  // the blob and returns; OCR happens later, off the capture path, so a slow
+  // engine cannot stall the frame source. Survives a restart: the rows are the
+  // queue.
+  pendingOcr(limit: number): PendingOcr[]
+  // Text plus the engine that produced it, in one UPDATE so the FTS trigger
+  // re-indexes once. Setting the engine is what takes the row out of
+  // `pendingOcr`, so it is written even when the text came back empty.
+  finalizeOcr(id: string, text: string, engine: string): void
   // True when the sqlite-vec extension loaded and the vector tables exist.
   readonly vecEnabled: boolean
   insertEmbedding(row: EmbeddingRow): void
   pendingEmbeddings(kind: EmbeddingKind, model: string, limit: number): PendingEmbedding[]
   close(): void
+}
+
+export interface PendingOcr {
+  id: string
+  blob: string
 }
 
 const SCHEMA_V1 = `
@@ -276,7 +296,46 @@ function migrate(db: IndexDb, vecLoaded: boolean): boolean {
   }
 
   ensureChunksAuTrigger(db)
+  ensureSegmentRole(db)
   return vecLoaded && version >= CURRENT_INDEX_SCHEMA_VERSION
+}
+
+// transcript_segments.role tells the primary engine's words from the optional
+// compare engine's. It is added outside the numbered migrations on purpose: the
+// v3 step is gated on sqlite-vec, so a database on a build without the
+// extension sits at v2 forever and would never reach a v4. Both the column and
+// the FTS triggers that skip compare rows are cheap and idempotent to ensure on
+// every open.
+function ensureSegmentRole(db: IndexDb): void {
+  if (!columnExists(db, 'transcript_segments', 'role')) {
+    db.run("ALTER TABLE transcript_segments ADD COLUMN role TEXT NOT NULL DEFAULT 'primary'")
+  }
+  db.transaction(() => {
+    db.run('DROP TRIGGER IF EXISTS transcript_segments_ai')
+    db.run('DROP TRIGGER IF EXISTS transcript_segments_ad')
+    db.run('DROP TRIGGER IF EXISTS transcript_segments_au')
+    // Every guard reads the same immutable `role`, so a row is either indexed
+    // and later deleted from the index, or never indexed at all. A compare row
+    // that reached the FTS index without a matching delete would corrupt it.
+    db.run(`CREATE TRIGGER transcript_segments_ai AFTER INSERT ON transcript_segments
+      WHEN new.role = 'primary'
+      BEGIN
+        INSERT INTO transcript_segments_fts(rowid, text) VALUES (new.rowid, new.text);
+      END`)
+    db.run(`CREATE TRIGGER transcript_segments_ad AFTER DELETE ON transcript_segments
+      WHEN old.role = 'primary'
+      BEGIN
+        INSERT INTO transcript_segments_fts(transcript_segments_fts, rowid, text)
+        VALUES('delete', old.rowid, old.text);
+      END`)
+    db.run(`CREATE TRIGGER transcript_segments_au AFTER UPDATE ON transcript_segments
+      WHEN old.role = 'primary' AND new.role = 'primary' AND old.text IS NOT new.text
+      BEGIN
+        INSERT INTO transcript_segments_fts(transcript_segments_fts, rowid, text)
+        VALUES('delete', old.rowid, old.text);
+        INSERT INTO transcript_segments_fts(rowid, text) VALUES (new.rowid, new.text);
+      END`)
+  })()
 }
 
 // Databases written before the multi-machine layout hold absolute blob paths
@@ -348,6 +407,15 @@ export function openChunkStore(dbPath: string): ChunkStore {
   const updateTextStmt = db.prepare(`
     UPDATE chunks SET text = $text WHERE id = $id
   `)
+  const pendingOcrStmt = db.prepare<PendingOcr, { $limit: number }>(`
+    SELECT id, blob FROM chunks
+    WHERE kind = 'screenshot' AND ocr_engine IS NULL
+    ORDER BY at ASC
+    LIMIT $limit
+  `)
+  const finalizeOcrStmt = db.prepare(`
+    UPDATE chunks SET text = $text, ocr_engine = $engine WHERE id = $id
+  `)
   const updateTextAndEngineStmt = db.prepare(`
     UPDATE chunks SET text = $text, audio_engine = $audio_engine WHERE id = $id
   `)
@@ -363,9 +431,9 @@ export function openChunkStore(dbPath: string): ChunkStore {
   `)
   const insertSegmentStmt = db.prepare(`
     INSERT INTO transcript_segments (
-      id, chunk_id, source, start_at, end_at, text, engine, transcribe_ms
+      id, chunk_id, source, start_at, end_at, text, engine, transcribe_ms, role
     ) VALUES (
-      $id, $chunk_id, $source, $start_at, $end_at, $text, $engine, $transcribe_ms
+      $id, $chunk_id, $source, $start_at, $end_at, $text, $engine, $transcribe_ms, $role
     )
   `)
   const appendChunkTextStmt = db.prepare(`
@@ -398,7 +466,7 @@ export function openChunkStore(dbPath: string): ChunkStore {
           SELECT s.id AS id, s.text AS text
           FROM transcript_segments s
           LEFT JOIN embedding_meta m ON m.id = s.id AND m.kind = 'segment' AND m.model = $model
-          WHERE m.id IS NULL AND COALESCE(s.text, '') <> ''
+          WHERE m.id IS NULL AND s.role = 'primary' AND COALESCE(s.text, '') <> ''
           LIMIT $limit
         `),
         pendingChunks: db.prepare<PendingEmbedding, { $model: string; $limit: number }>(`
@@ -459,12 +527,18 @@ export function openChunkStore(dbPath: string): ChunkStore {
           $text: row.text,
           $engine: row.engine,
           $transcribe_ms: row.transcribe_ms,
+          $role: row.role ?? 'primary',
         })
-        appendChunkTextStmt.run({
-          $chunk_id: row.chunk_id,
-          $text: row.text,
-          $engine: row.engine,
-        })
+        // Only the primary transcript becomes the chunk's text. Appending the
+        // compare engine's take too would store every sentence twice and hand
+        // search and embeddings a doubled transcript.
+        if ((row.role ?? 'primary') === 'primary') {
+          appendChunkTextStmt.run({
+            $chunk_id: row.chunk_id,
+            $text: row.text,
+            $engine: row.engine,
+          })
+        }
       })()
     },
     updateText(id, text, audioEngine) {
@@ -493,6 +567,12 @@ export function openChunkStore(dbPath: string): ChunkStore {
           $embedded_at: Date.now(),
         })
       })()
+    },
+    pendingOcr(limit) {
+      return pendingOcrStmt.all({ $limit: limit })
+    },
+    finalizeOcr(id, text, engine) {
+      finalizeOcrStmt.run({ $id: id, $text: text, $engine: engine })
     },
     pendingEmbeddings(kind, model, limit) {
       if (!vecStmts) return []

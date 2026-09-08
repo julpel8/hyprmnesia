@@ -174,6 +174,7 @@ export interface TranscriptSegment {
   text: string
   engine: string
   transcribe_ms: number
+  role: 'primary' | 'compare'
 }
 
 export interface RecallResult {
@@ -239,6 +240,8 @@ export interface SegmentRow {
   text: string
   engine: string
   transcribe_ms: number
+  // 'compare' rows are the optional second engine's take on the same audio.
+  role: 'primary' | 'compare'
 }
 
 export interface SearchChunkRow extends ChunkRow {

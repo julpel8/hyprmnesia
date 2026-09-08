@@ -14,10 +14,7 @@ test('LineBuffer: preserves blank lines for caller-side filtering', () => {
   expect(buf.push('a\n\nb\n')).toEqual(['a', '', 'b'])
 })
 
-// The subprocess paths use a POSIX shell; skip on Windows CI.
-const itPosix = process.platform === 'win32' ? test.skip : test
-
-itPosix('NativeWorker: line-buffers stdout and reports exit code', async () => {
+test('NativeWorker: line-buffers stdout and reports exit code', async () => {
   const lines: string[] = []
   let closeCode: number | null = -1
   await new Promise<void>((resolve) => {
@@ -37,7 +34,7 @@ itPosix('NativeWorker: line-buffers stdout and reports exit code', async () => {
   expect(closeCode).toBe(0)
 })
 
-itPosix('NativeWorker: send writes NDJSON and stop shuts down gracefully', async () => {
+test('NativeWorker: send writes NDJSON and stop shuts down gracefully', async () => {
   const echoed: string[] = []
   const worker = new NativeWorker('sh', {
     onLine: (line) => {

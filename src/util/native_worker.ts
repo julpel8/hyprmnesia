@@ -2,18 +2,17 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-// Resolve a bundled native helper (hpm-asr, hpm-embed, hpm-sck, ...) by base
-// name, appending the .exe suffix on Windows. Searches next to the running
-// executable first, then the dist/ and target/release build outputs. Returns
-// the first existing path, or undefined when the helper has not been built.
+// Resolve a bundled native helper (hpm-asr, hpm-embed, hpm-wlcap, ...) by base
+// name. Searches next to the running executable first, then the dist/ and
+// target/release build outputs. Returns the first existing path, or undefined
+// when the helper has not been built.
 export function findNativeBinary(baseName: string): string | undefined {
-  const name = process.platform === 'win32' ? `${baseName}.exe` : baseName
   const candidates = [
-    join(dirname(process.execPath), 'native', name),
-    join(dirname(process.execPath), name),
-    join(process.cwd(), 'dist', 'native', name),
-    join(process.cwd(), 'dist', name),
-    join(process.cwd(), 'target', 'release', name),
+    join(dirname(process.execPath), 'native', baseName),
+    join(dirname(process.execPath), baseName),
+    join(process.cwd(), 'dist', 'native', baseName),
+    join(process.cwd(), 'dist', baseName),
+    join(process.cwd(), 'target', 'release', baseName),
   ]
   return candidates.find((p) => existsSync(p))
 }
@@ -62,7 +61,7 @@ export class NativeWorker {
   }
 
   spawn(args: string[] = []): void {
-    const proc = spawn(this.binary, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    const proc = spawn(this.binary, args, { stdio: ['pipe', 'pipe', 'pipe'] })
     this.proc = proc
     proc.stdout.on('data', (chunk: Buffer) => {
       for (const line of this.lines.push(chunk.toString('utf8'))) this.handlers.onLine(line)

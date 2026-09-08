@@ -198,6 +198,7 @@ test('toSegment lifts a SegmentRow into the API shape with timestamps populated'
     start_at: 1_700_000_000_000,
     end_at: 1_700_000_001_000,
     text: 'hello world',
+    role: 'primary',
     engine: 'parakeet',
     transcribe_ms: 42,
   }

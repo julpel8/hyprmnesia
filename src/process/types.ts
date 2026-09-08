@@ -14,6 +14,10 @@ export interface PcmAudioFrame {
   pcm: Buffer
 }
 
+// 'compare' marks output from the optional second engine: stored and shown next
+// to the primary transcript, but kept out of chunk text, search and embeddings.
+export type TranscriptionRole = 'primary' | 'compare'
+
 export interface TranscriptionSegment {
   source: AudioSource
   chunkId: string
@@ -22,6 +26,7 @@ export interface TranscriptionSegment {
   text: string
   engine: string
   transcribeMs: number
+  role: TranscriptionRole
 }
 
 export interface TranscriptionStatus {

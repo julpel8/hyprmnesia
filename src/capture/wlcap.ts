@@ -3,7 +3,6 @@ import { dirname } from 'node:path'
 import type { EventBus } from '../core/events'
 import { findNativeBinary, NativeWorker } from '../util/native_worker'
 import { defaultWaylandTokenPath } from '../util/paths'
-import type { SckFrameEvent } from './sck'
 
 export interface WlcapBusOptions {
   frameIntervalMs: number
@@ -11,7 +10,16 @@ export interface WlcapBusOptions {
   jpegQuality?: number
 }
 
-type WlcapFrameHandler = (event: SckFrameEvent) => void
+export interface WlcapFrameEvent {
+  at: number
+  width: number
+  height: number
+  format: 'png' | 'jpeg'
+  mime: string
+  image: Buffer
+}
+
+type WlcapFrameHandler = (event: WlcapFrameEvent) => void
 
 export interface WlcapBus {
   start(): Promise<void>

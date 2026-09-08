@@ -2,45 +2,18 @@
 //
 // These spawn the compiled binary (via the CARGO_BIN_EXE_hpm-wlcap path that
 // `cargo test` exposes for binary crates) and exercise the NDJSON protocol at
-// the process boundary. Two layers of gating:
-//   * Non-Linux: only the stub exit-with-2 case runs.
-//   * Linux without HPM_WLCAP_E2E=1: the protocol smoke tests still run but
-//     do NOT issue a Start request (which would need xdg-desktop-portal +
-//     PipeWire). We verify the `ready` handshake, malformed-input error
-//     emission, and clean shutdown on EOF / explicit shutdown.
+// the process boundary, without HPM_WLCAP_E2E=1 set: the protocol smoke tests
+// still run but do NOT issue a Start request (which would need
+// xdg-desktop-portal + PipeWire). We verify the `ready` handshake,
+// malformed-input error emission, and clean shutdown on EOF / explicit
+// shutdown.
 //
 // Why this file exists: linux.rs is `#[cfg(target_os = "linux")]`-gated, so
-// its internal unit tests can only compile on Linux. This file gives us at
-// least some coverage everywhere CI runs (Windows, macOS, Linux).
-
-use std::process::Command;
+// its internal unit tests can only compile on Linux. This file gives us
+// black-box coverage of the process boundary alongside those unit tests.
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_hpm-wlcap")
-}
-
-#[cfg(not(target_os = "linux"))]
-#[test]
-fn non_linux_stub_exits_with_code_2_and_prints_marker() {
-    let output = Command::new(bin()).output().expect("spawn hpm-wlcap");
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "non-linux build must exit 2, got {:?}\nstderr: {}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr),
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("only supported on Linux"),
-        "expected platform marker in stderr, got: {stderr}",
-    );
-    // Stub must not emit any NDJSON on stdout.
-    assert!(
-        output.stdout.is_empty(),
-        "stub should not write to stdout, got: {:?}",
-        String::from_utf8_lossy(&output.stdout),
-    );
 }
 
 // ---- Linux protocol smoke tests ------------------------------------------

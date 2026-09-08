@@ -33,10 +33,7 @@ export interface UiServerOptions {
 }
 
 function openUrl(url: string): void {
-  const command =
-    process.platform === 'win32' ? 'rundll32' : process.platform === 'darwin' ? 'open' : 'xdg-open'
-  const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url]
-  const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
+  const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
   child.unref()
 }
 

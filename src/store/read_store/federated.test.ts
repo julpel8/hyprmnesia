@@ -105,6 +105,36 @@ test('timeline honours limit and offset across the merged order', () => {
   }
 })
 
+// A page past the first needs `offset + limit` rows out of each machine, which
+// is more than the public per-call cap of 100. Fanning out through the capped
+// path silently returned a short list, so every deep page came back empty.
+// One machine holds every early row, the other every late one, so the second
+// page lies entirely inside the first machine's rows past its hundredth. Fanning
+// out through the public per-call cap of 100 could not reach them, and the page
+// came back holding the other machine's rows instead.
+test('timeline serves a page past the public per-call limit', () => {
+  const root = freshRoot()
+  const early = Array.from({ length: 150 }, (_, i) => ({
+    id: randomUUIDv7(),
+    at: T + i * 100,
+    text: `early ${i}`,
+  }))
+  const late = Array.from({ length: 150 }, (_, i) => ({
+    id: randomUUIDv7(),
+    at: T + 1_000_000 + i * 100,
+    text: `late ${i}`,
+  }))
+  const hosts = [seedHost(root, 'rpi5', early), seedHost(root, 'dell', late)]
+  const read = new FederatedReadStore({ hosts })
+  try {
+    const deep = read.timeline({ from: T - 1, to: T + 2_000_000, limit: 10, offset: 100 })
+    expect(deep.map((i) => i.id)).toEqual(early.slice(100, 110).map((r) => r.id))
+    expect(deep.map((i) => i.host)).toEqual(Array(10).fill('rpi5'))
+  } finally {
+    read.close()
+  }
+})
+
 test('search returns hits from every machine', () => {
   const { ids, hosts } = twoHosts()
   const read = new FederatedReadStore({ hosts })

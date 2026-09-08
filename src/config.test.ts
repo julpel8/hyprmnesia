@@ -173,6 +173,52 @@ test('an explicit whisper engine is still honored at the current schema version'
   expect(cfg.processing.transcription.options?.language).toBe('fr')
 })
 
+test('the compare engine is off by default and keeps its whisper options ready', () => {
+  const cfg = loadConfig(tmpConfig('{}'))
+  expect(cfg.processing.transcription.compare?.engine).toBe('noop')
+  expect(cfg.processing.transcription.compare?.options?.model).toBe('whisper-large-v3-turbo')
+})
+
+test('an enabled compare engine is normalized like the primary one', () => {
+  const cfg = loadConfig(
+    tmpConfig(
+      `{"schema_version":${CURRENT_CONFIG_SCHEMA_VERSION},"processing":{"transcription":{"engine":"parakeet","compare":{"engine":"whisper","options":{"model":"whisper-bogus","language":" fr ","live":{"silence_ms":10}}}}}}`,
+    ),
+  )
+  const compare = cfg.processing.transcription.compare
+  expect(compare?.engine).toBe('whisper')
+  expect(compare?.options?.model).toBe('whisper-large-v3-turbo')
+  expect(compare?.options?.language).toBe('fr')
+  expect(compare?.options?.compute_type).toBe('int8')
+  // Segmentation comes from the primary engine so both transcripts line up.
+  expect(compare?.options?.live).toBeUndefined()
+})
+
+test('the compare engine is forced off when it would duplicate the primary', () => {
+  const same = loadConfig(
+    tmpConfig(
+      `{"schema_version":${CURRENT_CONFIG_SCHEMA_VERSION},"processing":{"transcription":{"engine":"whisper","compare":{"engine":"whisper"}}}}`,
+    ),
+  )
+  expect(same.processing.transcription.compare?.engine).toBe('noop')
+
+  const noPrimary = loadConfig(
+    tmpConfig(
+      `{"schema_version":${CURRENT_CONFIG_SCHEMA_VERSION},"processing":{"transcription":{"engine":"noop","compare":{"engine":"whisper"}}}}`,
+    ),
+  )
+  expect(noPrimary.processing.transcription.compare?.engine).toBe('noop')
+})
+
+test('the v6 migration seeds a compare engine that is off', () => {
+  const cfg = loadConfig(
+    tmpConfig('{"schema_version":6,"processing":{"transcription":{"engine":"parakeet"}}}'),
+  )
+  expect(cfg.schema_version).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
+  expect(cfg.processing.transcription.engine).toBe('parakeet')
+  expect(cfg.processing.transcription.compare?.engine).toBe('noop')
+})
+
 test('unknown whisper model and blank language fall back to defaults', () => {
   const cfg = loadConfig(
     tmpConfig(

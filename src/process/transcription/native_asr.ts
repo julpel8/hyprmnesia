@@ -5,6 +5,7 @@ import type {
   PcmAudioFrame,
   TranscriptionCallbacks,
   TranscriptionEngine,
+  TranscriptionRole,
   TranscriptionSegment,
   TranscriptionStatus,
 } from '../types'
@@ -97,6 +98,7 @@ export class NativeAsrTranscription implements TranscriptionEngine {
     family: AsrEngineFamily,
     private opts: AsrOptions = {},
     private events?: EventBus,
+    private role: TranscriptionRole = 'primary',
   ) {
     this.opts.model = normalizeAsrModel(family, opts.model)
     this.name = `${family}:${this.opts.model}`
@@ -231,6 +233,7 @@ export class NativeAsrTranscription implements TranscriptionEngine {
         text,
         engine: msg.engine,
         transcribeMs: msg.transcribe_ms,
+        role: this.role,
       }
       this.callbacks.onSegment(segment)
     } else if (msg.type === 'flushed') {

@@ -1,5 +1,4 @@
 import { randomUUIDv7 } from 'bun'
-import screenshot from 'screenshot-desktop'
 import type { ScreenCaptureConfig } from '../config'
 import type { EventBus, WindowContext } from '../core/events'
 import type { OcrEngine } from '../process/types'
@@ -7,13 +6,12 @@ import type { BlobStore } from '../store/blobs'
 import type { ChunkStore } from '../store/db'
 import { isWebp } from '../util/webp'
 import { needsImageTranscode, transcodeImage } from './ffmpeg'
-import type { SckBus, SckFrameEvent } from './sck'
-import { createWlcapBus } from './wlcap'
+import { createWlcapBus, type WlcapFrameEvent } from './wlcap'
 
 interface FrameBus {
   start(): Promise<void>
   stop(): Promise<void>
-  onFrame(handler: (frame: SckFrameEvent) => void): () => void
+  onFrame(handler: (frame: WlcapFrameEvent) => void): () => void
 }
 
 type StoredImageExt = 'png' | 'jpg' | 'webp'
@@ -25,7 +23,6 @@ export interface ScreenCaptureDeps {
   store: ChunkStore
   ocr: OcrEngine
   events: EventBus
-  sck?: SckBus
   getWindow?: () => WindowContext | undefined
 }
 
@@ -38,7 +35,7 @@ function captureImageFormat(format: ScreenCaptureConfig['format']): CaptureImage
   return format === 'webp' ? 'png' : format
 }
 
-function frameExt(format: SckFrameEvent['format']): CaptureImageFormat {
+function frameExt(format: WlcapFrameEvent['format']): CaptureImageFormat {
   return format === 'jpeg' ? 'jpg' : 'png'
 }
 
@@ -55,17 +52,15 @@ async function prepareImageForStorage(
   return { image, ext: opts.format }
 }
 
-// Backend selection: macOS uses the ScreenCaptureKit helper (hpm-sck); Wayland
-// uses the xdg-desktop-portal ScreenCast helper (hpm-wlcap); everything else
-// falls back to screenshot-desktop, which shells out to ImageMagick's X11-only
-// `import`.
+// Backend: the xdg-desktop-portal ScreenCast helper (hpm-wlcap). There is no
+// fallback — the X11 path shelled out to ImageMagick's `import` once per
+// frame and is gone.
 export function startScreenCapture({
   cfg,
   blobs,
   store,
   ocr,
   events,
-  sck,
   getWindow,
 }: ScreenCaptureDeps): CaptureRunner {
   if (!cfg.enabled) {
@@ -78,11 +73,7 @@ export function startScreenCapture({
     return { stop: () => {}, done: Promise.resolve() }
   }
 
-  if (process.platform === 'darwin' && sck) {
-    return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, sck, 'sck')
-  }
-
-  if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
+  if (process.env.WAYLAND_DISPLAY) {
     const imageFormat = captureImageFormat(cfg.format)
     const wlcap = createWlcapBus(
       {
@@ -95,85 +86,14 @@ export function startScreenCapture({
     return startWorkerScreen({ cfg, blobs, store, ocr, events, getWindow }, wlcap, 'wlcap')
   }
 
-  let running = true
-  let wakeSleep: (() => void) | undefined
-
-  function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        wakeSleep = undefined
-        resolve()
-      }, ms)
-      wakeSleep = () => {
-        clearTimeout(timer)
-        wakeSleep = undefined
-        resolve()
-      }
-    })
-  }
-
-  const qualityOpts = { format: cfg.format, quality: cfg.quality, maxWidth: cfg.max_width }
-  const imageFormat = captureImageFormat(cfg.format)
-
-  async function tick() {
-    const start = Date.now()
-    try {
-      const raw = (await screenshot({ format: imageFormat })) as Buffer
-      const text = await ocr.process(raw)
-      const { image, ext } = await prepareImageForStorage(raw, imageFormat, qualityOpts)
-      const id = randomUUIDv7()
-      const blob = await blobs.write('screenshot', id, ext, image)
-      const at = Date.now()
-      const window = getWindow?.()
-      store.insert({
-        id,
-        kind: 'screenshot',
-        at,
-        blob: blob.rel,
-        bytes: image.length,
-        text,
-        capture_ms: at - start,
-        window,
-        ocr: { engine: ocr.name },
-      })
-      events.publish({
-        type: 'chunk',
-        source: 'screen',
-        at,
-        id,
-        path: blob.abs,
-        bytes: image.length,
-        text_len: text.length,
-        capture_ms: at - start,
-        window,
-      })
-    } catch (err) {
-      events.publish({ type: 'error', source: 'screen', at: Date.now(), message: String(err) })
-    }
-  }
-
-  async function loop() {
-    events.publish({
-      type: 'started',
-      source: 'screen',
-      at: Date.now(),
-      meta: { interval_ms: cfg.interval_ms, format: cfg.format },
-    })
-    while (running) {
-      await tick()
-      if (running) await sleep(cfg.interval_ms)
-    }
-    events.publish({ type: 'stopped', source: 'screen', at: Date.now() })
-  }
-
-  const done = loop()
-  return {
-    done,
-    stop: () => {
-      running = false
-      wakeSleep?.()
-    },
-  }
+  events.publish({
+    type: 'log',
+    at: Date.now(),
+    level: 'warn',
+    message:
+      'screen capture unavailable without WAYLAND_DISPLAY; no capture backend for this session',
+  })
+  return { stop: () => {}, done: Promise.resolve() }
 }
 
 function startWorkerScreen(
@@ -184,11 +104,15 @@ function startWorkerScreen(
   let running = true
   let lastAcceptedAt = 0
 
-  async function processFrame(frame: SckFrameEvent) {
+  async function processFrame(frame: WlcapFrameEvent) {
     const start = Date.now()
     const fallbackExt = frameExt(frame.format)
     try {
-      const text = await ocr.process(frame.image)
+      // No OCR here. Reading a frame's text takes seconds, and this runs on the
+      // chain that drains the capture helper's stdout: blocking it fills the
+      // pipe, the helper blocks on write, and the frame source stalls. The row
+      // is stored with no text and no `ocr_engine`, which is what OcrQueue picks
+      // up afterwards.
       const { image, ext } = await prepareImageForStorage(frame.image, fallbackExt, {
         format: cfg.format,
         quality: cfg.quality,
@@ -203,10 +127,9 @@ function startWorkerScreen(
         at: frame.at,
         blob: blob.rel,
         bytes: image.length,
-        text,
+        text: '',
         capture_ms: Date.now() - start,
         window,
-        ocr: { engine: ocr.name },
       })
       events.publish({
         type: 'chunk',
@@ -215,7 +138,7 @@ function startWorkerScreen(
         id,
         path: blob.abs,
         bytes: image.length,
-        text_len: text.length,
+        text_len: 0,
         capture_ms: Date.now() - start,
         window,
       })

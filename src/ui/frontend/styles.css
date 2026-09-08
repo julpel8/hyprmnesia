@@ -151,6 +151,14 @@ input {
   color: var(--accent);
   margin-right: 6px;
 }
+.subtitle i {
+  color: var(--muted);
+  font-style: normal;
+  margin-right: 6px;
+}
+.subtitle.compare {
+  background: rgba(0, 0, 0, 0.55);
+}
 .replay aside {
   min-width: 0;
   overflow: auto;
@@ -482,9 +490,26 @@ input {
 }
 .transcript-line {
   display: grid;
-  grid-template-columns: 64px 70px 1fr;
+  grid-template-columns: 64px 1fr;
   gap: 8px;
   font-size: 13px;
+}
+/* Stacked rather than side by side: two engines' takes on the same speech read
+   better one under the other inside a column that is already half the width. */
+.transcript-takes {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.transcript-take {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+.transcript-take + .transcript-take {
+  padding-top: 3px;
+  border-top: 1px dashed var(--line);
 }
 .transcript-time,
 .transcript-engine {

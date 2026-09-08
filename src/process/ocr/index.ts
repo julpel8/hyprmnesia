@@ -1,8 +1,5 @@
 import type { EngineConfig } from '../../config'
 import type { OcrEngine } from '../types'
-import { AutoOcr } from './auto'
-import { NativeOcr } from './native'
-import { NoopOcr } from './noop'
 import { TesseractOcr, type TesseractOptions } from './tesseract'
 
 function tesseractOptions(opts: Record<string, unknown>): TesseractOptions {
@@ -14,16 +11,10 @@ function tesseractOptions(opts: Record<string, unknown>): TesseractOptions {
 
 export function makeOcr(cfg: EngineConfig): OcrEngine {
   const opts = cfg.options ?? {}
-  switch (cfg.engine) {
-    case 'noop':
-      return new NoopOcr()
-    case 'native':
-      return new NativeOcr()
-    case 'tesseract':
-      return new TesseractOcr(tesseractOptions(opts))
-    case 'auto':
-      return new AutoOcr(tesseractOptions(opts))
+  switch (
+    cfg.engine // plus que tesseract avec linux, mais on peut ajouter d'autres moteurs plus tard...
+  ) {
     default:
-      throw new Error(`unknown ocr engine: ${cfg.engine}`)
+      return new TesseractOcr(tesseractOptions(opts))
   }
 }

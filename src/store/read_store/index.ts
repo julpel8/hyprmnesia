@@ -177,9 +177,13 @@ export class HyprmnesiaReadStore {
   }
 
   search(query: string, filters: QueryFilters): SearchResult[] {
+    return this.searchPage(query, filters, clampLimit(filters.limit), clampOffset(filters.offset))
+  }
+
+  // Public for the same reason as `timelinePage`: fusing N machines' rankings
+  // needs `offset + limit` hits from each, above the cap `search` applies.
+  searchPage(query: string, filters: QueryFilters, limit: number, offset: number): SearchResult[] {
     const mode = normalizeMode(filters.mode)
-    const limit = clampLimit(filters.limit)
-    const offset = clampOffset(filters.offset)
     const innerLimit = limit + offset
     const useVec = mode !== 'lexical' && this.vecReady && filters.queryVector !== undefined
 
@@ -379,8 +383,17 @@ export class HyprmnesiaReadStore {
   }
 
   timeline(filters: QueryFilters & { from: number; to: number }): TimelineItem[] {
-    const limit = clampLimit(filters.limit)
-    const offset = clampOffset(filters.offset)
+    return this.timelinePage(filters, clampLimit(filters.limit), clampOffset(filters.offset))
+  }
+
+  // Public so the federated reader can pull more than one public page out of a
+  // machine: merging N machines' lists needs `offset + limit` rows from each,
+  // which is above the cap `timeline` applies to a caller-supplied limit.
+  timelinePage(
+    filters: QueryFilters & { from: number; to: number },
+    limit: number,
+    offset: number,
+  ): TimelineItem[] {
     const source = normalizeSource(filters.source)
     const params = {
       $from: filters.from,
@@ -395,7 +408,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -404,7 +418,8 @@ export class HyprmnesiaReadStore {
           AND (
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY at ASC
         LIMIT $limit OFFSET $offset
@@ -433,7 +448,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -447,7 +463,8 @@ export class HyprmnesiaReadStore {
           AND (
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY c.at DESC
         LIMIT $limit
@@ -500,7 +517,8 @@ export class HyprmnesiaReadStore {
       .query<ChunkRow, typeof params>(
         `
         SELECT c.*,
-               (SELECT COUNT(*) FROM transcript_segments s WHERE s.chunk_id = c.id) AS segment_count
+               (SELECT COUNT(*) FROM transcript_segments s
+                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -512,7 +530,8 @@ export class HyprmnesiaReadStore {
           AND ($app IS NULL OR c.window_app LIKE $app)
           AND (
             COALESCE(c.text, '') <> ''
-            OR EXISTS (SELECT 1 FROM transcript_segments sx WHERE sx.chunk_id = c.id)
+            OR EXISTS (SELECT 1 FROM transcript_segments sx
+                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
           )
         ORDER BY c.at ASC
         LIMIT $limit
@@ -531,6 +550,7 @@ export class HyprmnesiaReadStore {
         FROM transcript_segments
         WHERE start_at >= $from
           AND start_at <= $to
+          AND role = 'primary'
           AND COALESCE(text, '') <> ''
         ORDER BY start_at ASC
         LIMIT $limit
@@ -557,8 +577,11 @@ export class HyprmnesiaReadStore {
       )
       .all(id)
       .map(toSegment)
+    // Both transcripts are returned so a caller can compare them, but the count
+    // that describes the chunk stays the number of primary segments.
+    const primaryCount = segments.filter((segment) => segment.role === 'primary').length
     const chunk = {
-      ...toTimelineItem(row, segments.length),
+      ...toTimelineItem(row, primaryCount),
       text: row.text ?? '',
       ocr_engine: row.ocr_engine,
       audio_engine: row.audio_engine,

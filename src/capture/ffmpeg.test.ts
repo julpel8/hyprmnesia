@@ -3,9 +3,9 @@
 //   - needsImageTranscode (pure)
 //   - transcodeImage (ffmpeg shellout integration)
 //
-// transcodeImage spawns ffmpeg via getFfmpegPath() — bundled by ffmpeg-static
-// on win/mac and required on the system PATH on Linux. The integration tests
-// skip when no ffmpeg is locatable so this file stays green on bare CI runners.
+// transcodeImage spawns ffmpeg via getFfmpegPath() — required on the system
+// PATH (or bundled in dist/native). The integration tests skip when no ffmpeg
+// is locatable so this file stays green on bare CI runners.
 
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
@@ -20,35 +20,28 @@ import {
 
 // ---- ffmpegSearchPaths: pure path-resolution priority --------------------
 
-test('ffmpeg search prefers packaged native binary before ffmpeg-static path', () => {
+test('ffmpeg search prefers packaged native binary before the system path', () => {
   const root = join('tmp', 'hyprmnesia')
-  const staticPath = join(root, 'node_modules', 'ffmpeg-static', 'ffmpeg.exe')
-  const nativePath = join(root, 'native', 'ffmpeg.exe')
+  const nativePath = join(root, 'native', 'ffmpeg')
   const paths = ffmpegSearchPaths({
-    platform: 'win32',
-    env: {},
-    execPath: join(root, 'hpm.exe'),
-    cwd: root,
-    ffmpegStaticPath: staticPath,
-  })
-
-  expect(paths).toContain(nativePath)
-  expect(paths.indexOf(nativePath)).toBeLessThan(paths.indexOf(staticPath))
-})
-
-test('ffmpeg search avoids ffmpeg-static on Linux', () => {
-  const root = join('tmp', 'hyprmnesia')
-  const staticPath = join(root, 'node_modules', 'ffmpeg-static', 'ffmpeg')
-  const paths = ffmpegSearchPaths({
-    platform: 'linux',
     env: {},
     execPath: join(root, 'hpm'),
     cwd: root,
-    ffmpegStaticPath: staticPath,
+  })
+
+  expect(paths).toContain(nativePath)
+  expect(paths.indexOf(nativePath)).toBeLessThan(paths.indexOf('/usr/bin/ffmpeg'))
+})
+
+test('ffmpeg search falls back to the system ffmpeg on Linux', () => {
+  const root = join('tmp', 'hyprmnesia')
+  const paths = ffmpegSearchPaths({
+    env: {},
+    execPath: join(root, 'hpm'),
+    cwd: root,
   })
 
   expect(paths).toContain('/usr/bin/ffmpeg')
-  expect(paths).not.toContain(staticPath)
 })
 
 // ---- needsImageTranscode: pure unit tests --------------------------------
@@ -76,7 +69,7 @@ test('needsImageTranscode: maxWidth of 0 disables clamping', () => {
 // ---- transcodeImage: spawn ffmpeg ----------------------------------------
 
 // Locate ffmpeg up front. If we can't, skip the integration suite entirely so
-// the file still passes on machines without ffmpeg-static or system ffmpeg.
+// the file still passes on machines without ffmpeg installed.
 let ffmpegAvailable = false
 try {
   getFfmpegPath()
@@ -111,7 +104,7 @@ async function synthPng(
       format === 'png' ? 'png' : 'mjpeg',
       'pipe:1',
     ],
-    { stdout: 'pipe', stderr: 'pipe', windowsHide: true },
+    { stdout: 'pipe', stderr: 'pipe' },
   )
   const out = Buffer.from(await new Response(proc.stdout).arrayBuffer())
   const exit = await proc.exited
@@ -127,7 +120,7 @@ async function synthPng(
 async function probeDimensions(image: Buffer): Promise<{ width: number; height: number }> {
   const proc = Bun.spawn(
     [getFfmpegPath(), '-hide_banner', '-loglevel', 'info', '-i', 'pipe:0', '-f', 'null', '-'],
-    { stdin: image, stdout: 'pipe', stderr: 'pipe', windowsHide: true },
+    { stdin: image, stdout: 'pipe', stderr: 'pipe' },
   )
   await proc.exited
   const stderr = await new Response(proc.stderr).text()
@@ -140,7 +133,6 @@ async function ffmpegHasEncoder(name: string): Promise<boolean> {
   const proc = Bun.spawn([getFfmpegPath(), '-hide_banner', '-encoders'], {
     stdout: 'pipe',
     stderr: 'pipe',
-    windowsHide: true,
   })
   const text = await new Response(proc.stdout).text()
   await proc.exited

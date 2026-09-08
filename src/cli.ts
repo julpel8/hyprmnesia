@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 import { spawn, spawnSync } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, watch } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { type Config, ensureDefaultConfig, loadConfig } from './config'
 import { audioCaptureState, isAudioSource, setAudioCapture } from './core/capture_toggle'
 import {
   clearStopRequest,
   daemonPid,
-  ERR_LOG_FILE,
   isDaemonAlive,
   isStopRequested,
   LEVELS_FILE,
@@ -153,8 +152,8 @@ usage:
   hpm ui [--no-open]     open the local Hyprmnesia web app (dashboard, search,
                          settings, live transcript)
   hpm launcher install   add a desktop-launcher entry for this binary
-                         (Linux .desktop / macOS Hyprmnesia.app); the .deb/.pkg
-                         already install one, so this is for the portable build
+                         (Linux .desktop); the .deb already installs one, so
+                         this is for the portable build
   hpm launcher uninstall remove the desktop-launcher entry
   hpm autostart enable   start Hyprmnesia automatically at login (opt-in)
   hpm autostart disable  remove the login autostart entry
@@ -324,7 +323,6 @@ function cmdStartDaemon(flags: Record<string, string | boolean>) {
     const pid = spawnDaemon(flagsToArgv(flags))
     console.log(`hyprmnesia started (pid ${pid})`)
     console.log(`logs: ${LOG_FILE}`)
-    if (process.platform === 'win32') console.log(`errors: ${ERR_LOG_FILE}`)
   } catch (err) {
     console.error(String(err))
     process.exit(1)
@@ -393,7 +391,7 @@ function cmdQuit() {
 }
 
 /**
- * Manages the desktop-launcher entry (Linux `.desktop` / macOS app bundle).
+ * Manages the desktop-launcher entry (Linux `.desktop`).
  *
  * This is the portable and post-install repair path; system installers write
  * the same content at packaging time. It only touches files — it never starts
@@ -411,9 +409,9 @@ function cmdLauncher(args: string[]) {
 }
 
 /**
- * Manages opt-in login autostart (Linux XDG autostart / macOS LaunchAgent).
+ * Manages opt-in login autostart (Linux XDG autostart).
  *
- * Files only, plus `launchctl` on macOS; never starts the tray directly.
+ * Files only; never starts the tray directly.
  */
 function cmdAutostart(args: string[]) {
   const sub = args[0]
@@ -443,7 +441,7 @@ function statusPayload() {
     running,
     pid: running ? pid : null,
     logs: LOG_FILE,
-    errors: process.platform === 'win32' ? ERR_LOG_FILE : LOG_FILE,
+    errors: LOG_FILE,
     levels: readLevels(),
     capture,
   }
@@ -464,7 +462,6 @@ function cmdStatus(flags: Record<string, string | boolean>) {
   } else if (isDaemonAlive()) {
     console.log(`daemon: running (pid ${pid})`)
     console.log(`logs: ${LOG_FILE}`)
-    if (process.platform === 'win32') console.log(`errors: ${ERR_LOG_FILE}`)
   } else {
     console.log(`daemon: stale pid ${pid} (process dead, file will be cleaned up on next start)`)
   }
@@ -529,11 +526,6 @@ async function maybeNotifyUpdate(flags: Record<string, string | boolean>) {
   }
 }
 
-function isInsideDir(path: string, dir: string): boolean {
-  const rel = relative(resolve(dir), resolve(path))
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
-
 /**
  * Hidden release-only smoke test. It exercises runtime asset lookup from the
  * packaged executable so CI catches build-machine paths baked into releases.
@@ -541,14 +533,9 @@ function isInsideDir(path: string, dir: string): boolean {
 async function cmdSmokeRelease() {
   const { getFfmpegPath } = await import('./capture/ffmpeg')
   const ffmpeg = getFfmpegPath()
-  if (process.platform !== 'linux' && !isInsideDir(ffmpeg, dirname(process.execPath))) {
-    console.error(`ffmpeg resolved outside packaged app: ${ffmpeg}`)
-    process.exit(1)
-  }
 
   const result = spawnSync(ffmpeg, ['-version'], {
     encoding: 'utf8',
-    windowsHide: true,
   })
   if (result.error || result.status !== 0) {
     const details = [String(result.error ?? ''), result.stderr, result.stdout]
@@ -622,17 +609,10 @@ function cmdLogs(flags: Record<string, string | boolean>) {
 }
 
 /**
- * Returns the platform-specific native tray executable name.
- */
-function trayBinaryName(): string {
-  return process.platform === 'win32' ? 'hpm-tray.exe' : 'hpm-tray'
-}
-
-/**
  * Finds the tray helper in packaged, development, or Cargo output locations.
  */
 function findTrayBinary(): string | undefined {
-  const name = trayBinaryName()
+  const name = 'hpm-tray'
   const candidates = [
     join(dirname(process.execPath), 'native', name),
     join(dirname(process.execPath), name),
@@ -658,7 +638,6 @@ function launchTray(flags: Record<string, string | boolean>, opts: { autoStart: 
     detached: true,
     env: opts.autoStart ? process.env : { ...process.env, HPM_TRAY_NO_AUTOSTART: '1' },
     stdio: 'ignore',
-    windowsHide: true,
   })
   proc.unref()
 }
