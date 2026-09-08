@@ -429,6 +429,10 @@ writes JSON logs.
 | System audio   | needs Screen Capturer Recorder         | needs BlackHole 2ch | `@DEFAULT_MONITOR@` via pulse      |
 | Window context | OK                                     | OK + URL            | OK on X11, none on Wayland         |
 
+Screen capture reads text off the frame afterwards, never while capturing: the
+frame is stored first and `OcrQueue` fills in the text. A slow OCR engine costs
+searchable text, never frames.
+
 ## Roadmap
 
 - [ ] Harden Parakeet ASR across Windows/macOS/Linux

@@ -32,6 +32,8 @@ test('audio consumer does not block PCM ingestion while a chunk blob is finalize
     finalizeAudioChunk: (id: string, fields: unknown) => finalized.push({ id, fields }),
     insertTranscriptSegment: () => {},
     updateText: () => {},
+    pendingOcr: () => [],
+    finalizeOcr: () => {},
     insertEmbedding: () => {},
     pendingEmbeddings: () => [],
     close: () => {},

@@ -117,7 +117,11 @@ function startWorkerScreen(
     const start = Date.now()
     const fallbackExt = frameExt(frame.format)
     try {
-      const text = await ocr.process(frame.image)
+      // No OCR here. Reading a frame's text takes seconds, and this runs on the
+      // chain that drains the capture helper's stdout: blocking it fills the
+      // pipe, the helper blocks on write, and the frame source stalls. The row
+      // is stored with no text and no `ocr_engine`, which is what OcrQueue picks
+      // up afterwards.
       const { image, ext } = await prepareImageForStorage(frame.image, fallbackExt, {
         format: cfg.format,
         quality: cfg.quality,
@@ -132,10 +136,9 @@ function startWorkerScreen(
         at: frame.at,
         blob: blob.rel,
         bytes: image.length,
-        text,
+        text: '',
         capture_ms: Date.now() - start,
         window,
-        ocr: { engine: ocr.name },
       })
       events.publish({
         type: 'chunk',
@@ -144,7 +147,7 @@ function startWorkerScreen(
         id,
         path: blob.abs,
         bytes: image.length,
-        text_len: text.length,
+        text_len: 0,
         capture_ms: Date.now() - start,
         window,
       })

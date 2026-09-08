@@ -5,6 +5,7 @@ import type { Config } from '../config'
 import { EmbeddingQueue } from '../process/embedding_queue'
 import { makeEmbedding } from '../process/embeddings'
 import { makeOcr } from '../process/ocr'
+import { OcrQueue } from '../process/ocr_queue'
 import { makeTranscription } from '../process/transcription'
 import { TranscriptionQueue } from '../process/transcription_queue'
 import { makeBlobStore } from '../store/blobs'
@@ -71,6 +72,7 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
   const embedding = makeEmbedding(cfg.processing.embeddings, events)
   let transcriptionQueue: TranscriptionQueue | undefined
   let embeddingQueue: EmbeddingQueue | undefined
+  let ocrQueue: OcrQueue | undefined
 
   let running = false
   let stopping: Promise<void> | undefined
@@ -120,6 +122,11 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
 
     embeddingQueue = new EmbeddingQueue(embedding, store, events, embeddingQueueOptions(cfg))
     await embeddingQueue.start()
+
+    // Reads the text of screenshots after they are stored. Capture never waits
+    // on it, so a slow engine costs searchable text, never frames.
+    ocrQueue = new OcrQueue(ocr, store, events, { hostDir: hostDir(cfg) })
+    ocrQueue.start()
 
     const wantSckScreen = process.platform === 'darwin' && cfg.capture.screen.enabled
     const wantSckSystemAudio = process.platform === 'darwin' && cfg.capture.audio.system.enabled
@@ -200,6 +207,8 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       transcriptionQueue = undefined
       const activeEmbeddingQueue = embeddingQueue
       embeddingQueue = undefined
+      const activeOcrQueue = ocrQueue
+      ocrQueue = undefined
 
       for (const r of activeRunners) r.stop()
       windowTracker?.stop()
@@ -221,6 +230,7 @@ export function makeOrchestrator(cfg: Config): Orchestrator {
       }
       await activeQueue?.stop()
       await activeEmbeddingQueue?.stop()
+      await activeOcrQueue?.stop()
 
       if (snapshotTimer) {
         clearInterval(snapshotTimer)

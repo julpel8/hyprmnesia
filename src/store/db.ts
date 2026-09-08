@@ -87,11 +87,25 @@ export interface ChunkStore {
   // trigger only re-indexes once. Called once per audio chunk today; designed
   // to also tolerate repeated calls per id for future live transcription.
   updateText(id: string, text: string, audioEngine?: string): void
+  // Screenshots stored before their text was read, oldest first. Capture writes
+  // the blob and returns; OCR happens later, off the capture path, so a slow
+  // engine cannot stall the frame source. Survives a restart: the rows are the
+  // queue.
+  pendingOcr(limit: number): PendingOcr[]
+  // Text plus the engine that produced it, in one UPDATE so the FTS trigger
+  // re-indexes once. Setting the engine is what takes the row out of
+  // `pendingOcr`, so it is written even when the text came back empty.
+  finalizeOcr(id: string, text: string, engine: string): void
   // True when the sqlite-vec extension loaded and the vector tables exist.
   readonly vecEnabled: boolean
   insertEmbedding(row: EmbeddingRow): void
   pendingEmbeddings(kind: EmbeddingKind, model: string, limit: number): PendingEmbedding[]
   close(): void
+}
+
+export interface PendingOcr {
+  id: string
+  blob: string
 }
 
 const SCHEMA_V1 = `
@@ -348,6 +362,15 @@ export function openChunkStore(dbPath: string): ChunkStore {
   const updateTextStmt = db.prepare(`
     UPDATE chunks SET text = $text WHERE id = $id
   `)
+  const pendingOcrStmt = db.prepare<PendingOcr, { $limit: number }>(`
+    SELECT id, blob FROM chunks
+    WHERE kind = 'screenshot' AND ocr_engine IS NULL
+    ORDER BY at ASC
+    LIMIT $limit
+  `)
+  const finalizeOcrStmt = db.prepare(`
+    UPDATE chunks SET text = $text, ocr_engine = $engine WHERE id = $id
+  `)
   const updateTextAndEngineStmt = db.prepare(`
     UPDATE chunks SET text = $text, audio_engine = $audio_engine WHERE id = $id
   `)
@@ -493,6 +516,12 @@ export function openChunkStore(dbPath: string): ChunkStore {
           $embedded_at: Date.now(),
         })
       })()
+    },
+    pendingOcr(limit) {
+      return pendingOcrStmt.all({ $limit: limit })
+    },
+    finalizeOcr(id, text, engine) {
+      finalizeOcrStmt.run({ $id: id, $text: text, $engine: engine })
     },
     pendingEmbeddings(kind, model, limit) {
       if (!vecStmts) return []

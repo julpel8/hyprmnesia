@@ -54,6 +54,10 @@ function makeStore(opts: FakeStoreOptions = {}): FakeStore {
     updateText: () => {
       throw new Error('updateText not used in EmbeddingQueue tests')
     },
+    pendingOcr: () => [],
+    finalizeOcr: () => {
+      throw new Error('finalizeOcr not used in EmbeddingQueue tests')
+    },
     pendingEmbeddings(kind, _model, limit) {
       store.pendingCalls.push({ kind, limit })
       const queue = queues[kind]
