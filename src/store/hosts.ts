@@ -61,7 +61,7 @@ export function discoverHosts(opts: HostDiscoveryOptions): HostSource[] {
 }
 
 // How long a discovery result is reused. Scanning the shared tree and reading
-// the config on every MCP call would be wasteful; a few seconds is short enough
+// the config on every API call would be wasteful; a few seconds is short enough
 // that a machine appearing in the folder shows up almost at once.
 const HOST_CACHE_TTL_MS = 5_000
 let cache: { key: string; at: number; hosts: HostSource[] } | undefined

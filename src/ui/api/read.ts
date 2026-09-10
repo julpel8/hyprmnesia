@@ -13,8 +13,8 @@ import {
   type QueryFilters,
   ReadStoreError,
   type RecentActivityFilters,
-} from '../../mcp/read_store'
-import { withFederatedReadStore } from '../../mcp/read_store/federated'
+} from '../../api/read_store'
+import { withFederatedReadStore } from '../../api/read_store/federated'
 import { sliceRange } from '../../replay/range'
 import type { ReplayBlobRef, ReplayChunk, ReplayManifest } from '../../replay/store'
 import { withReplayStore } from '../../replay/store'

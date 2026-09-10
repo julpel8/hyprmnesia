@@ -4,10 +4,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const TOKEN_PREFIX = 'hpm_mcp_'
+const TOKEN_PREFIX = 'hpm_api_'
 const VERIFIER_PREFIX = 'sha256:'
-const SERVICE_NAME = 'hyprmnesia-mcp-token'
-const SECRET_ATTRIBUTES = ['service', 'hyprmnesia', 'name', 'mcp-token']
+const SERVICE_NAME = 'hyprmnesia-api-token'
+const SECRET_ATTRIBUTES = ['service', 'hyprmnesia', 'name', 'api-token']
 
 // Verifiers we persist are `sha256:<hex>` — never anything needing shell-style
 // quoting. The guard keeps a value from breaking out of the single-line
@@ -28,22 +28,22 @@ function macQuote(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 }
 
-export interface McpAuthStore {
+export interface ApiAuthStore {
   readonly name: string
   read(): string | undefined
   write(verifier: string): void
   delete?(): void
 }
 
-export interface McpAuthStatus {
+export interface ApiAuthStatus {
   enabled: boolean
   configured: boolean
   backend: string
 }
 
-export type McpAuthFailure = 'missing_token' | 'unconfigured' | 'invalid_token'
+export type ApiAuthFailure = 'missing_token' | 'unconfigured' | 'invalid_token'
 
-export class MemoryMcpAuthStore implements McpAuthStore {
+export class MemoryApiAuthStore implements ApiAuthStore {
   readonly name = 'memory'
   private verifier: string | undefined
 
@@ -56,7 +56,7 @@ export class MemoryMcpAuthStore implements McpAuthStore {
   }
 }
 
-class FileMcpAuthStore implements McpAuthStore {
+class FileApiAuthStore implements ApiAuthStore {
   readonly name = 'file'
 
   constructor(private readonly path = defaultVerifierPath()) {}
@@ -82,7 +82,7 @@ class FileMcpAuthStore implements McpAuthStore {
   }
 }
 
-class MacKeychainMcpAuthStore implements McpAuthStore {
+class MacKeychainApiAuthStore implements ApiAuthStore {
   readonly name = 'macos-keychain'
 
   read(): string | undefined {
@@ -111,7 +111,7 @@ class MacKeychainMcpAuthStore implements McpAuthStore {
   }
 }
 
-class LinuxSecretServiceMcpAuthStore implements McpAuthStore {
+class LinuxSecretServiceApiAuthStore implements ApiAuthStore {
   readonly name = 'secret-service'
 
   read(): string | undefined {
@@ -127,7 +127,7 @@ class LinuxSecretServiceMcpAuthStore implements McpAuthStore {
   write(verifier: string): void {
     const result = spawnSync(
       'secret-tool',
-      ['store', '--label', 'Hyprmnesia MCP token', ...SECRET_ATTRIBUTES],
+      ['store', '--label', 'Hyprmnesia API token', ...SECRET_ATTRIBUTES],
       {
         encoding: 'utf8',
         input: `${verifier}\n`,
@@ -138,10 +138,10 @@ class LinuxSecretServiceMcpAuthStore implements McpAuthStore {
   }
 }
 
-class WindowsDpapiMcpAuthStore implements McpAuthStore {
+class WindowsDpapiApiAuthStore implements ApiAuthStore {
   readonly name = 'windows-dpapi-file'
 
-  constructor(private readonly path = join(homedir(), '.hyprmnesia', 'mcp-token.hash.dpapi')) {}
+  constructor(private readonly path = join(homedir(), '.hyprmnesia', 'api-token.hash.dpapi')) {}
 
   read(): string | undefined {
     if (!existsSync(this.path)) return undefined
@@ -168,20 +168,20 @@ $ErrorActionPreference = 'Stop'
 $path = ${psQuote(this.path)}
 $dir = Split-Path -Parent $path
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$plain = [Text.Encoding]::UTF8.GetBytes($env:HPM_MCP_VERIFIER)
+$plain = [Text.Encoding]::UTF8.GetBytes($env:HPM_API_VERIFIER)
 $bytes = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
 [IO.File]::WriteAllText($path, [Convert]::ToBase64String($bytes))
 `
-    const result = runPowerShell(script, { HPM_MCP_VERIFIER: verifier })
+    const result = runPowerShell(script, { HPM_API_VERIFIER: verifier })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'PowerShell DPAPI failed')
   }
 }
 
-export class CachedMcpAuthStore implements McpAuthStore {
+export class CachedApiAuthStore implements ApiAuthStore {
   readonly name: string
   private cached: string | undefined
 
-  constructor(private readonly inner: McpAuthStore) {
+  constructor(private readonly inner: ApiAuthStore) {
     this.name = inner.name
   }
 
@@ -203,10 +203,10 @@ export class CachedMcpAuthStore implements McpAuthStore {
   }
 }
 
-export class CompositeMcpAuthStore implements McpAuthStore {
+export class CompositeApiAuthStore implements ApiAuthStore {
   readonly name: string
 
-  constructor(private readonly stores: McpAuthStore[]) {
+  constructor(private readonly stores: ApiAuthStore[]) {
     this.name = stores.map((store) => store.name).join(' -> ')
   }
 
@@ -252,67 +252,67 @@ export class CompositeMcpAuthStore implements McpAuthStore {
   }
 }
 
-export function createDefaultMcpAuthStore(): McpAuthStore {
-  const file = new FileMcpAuthStore()
+export function createDefaultApiAuthStore(): ApiAuthStore {
+  const file = new FileApiAuthStore()
   if (process.platform === 'win32')
-    return new CachedMcpAuthStore(new CompositeMcpAuthStore([new WindowsDpapiMcpAuthStore(), file]))
+    return new CachedApiAuthStore(new CompositeApiAuthStore([new WindowsDpapiApiAuthStore(), file]))
   if (process.platform === 'darwin' && commandExists('security')) {
-    return new CachedMcpAuthStore(new CompositeMcpAuthStore([new MacKeychainMcpAuthStore(), file]))
+    return new CachedApiAuthStore(new CompositeApiAuthStore([new MacKeychainApiAuthStore(), file]))
   }
   if (process.platform === 'linux' && commandExists('secret-tool')) {
-    return new CachedMcpAuthStore(
-      new CompositeMcpAuthStore([new LinuxSecretServiceMcpAuthStore(), file]),
+    return new CachedApiAuthStore(
+      new CompositeApiAuthStore([new LinuxSecretServiceApiAuthStore(), file]),
     )
   }
-  return new CachedMcpAuthStore(file)
+  return new CachedApiAuthStore(file)
 }
 
-export function generateMcpToken(): string {
+export function generateApiToken(): string {
   return `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`
 }
 
-export function hashMcpToken(token: string): string {
+export function hashApiToken(token: string): string {
   return `${VERIFIER_PREFIX}${createHash('sha256').update(token, 'utf8').digest('hex')}`
 }
 
-export function isValidMcpTokenShape(token: string): boolean {
+export function isValidApiTokenShape(token: string): boolean {
   return token.startsWith(TOKEN_PREFIX) && token.length > TOKEN_PREFIX.length
 }
 
-export function verifyMcpToken(
+export function verifyApiToken(
   token: string | undefined,
-  store: McpAuthStore,
-): true | McpAuthFailure {
+  store: ApiAuthStore,
+): true | ApiAuthFailure {
   if (!token) return 'missing_token'
   const verifier = store.read()
   if (!verifier || !verifier.startsWith(VERIFIER_PREFIX)) return 'unconfigured'
-  if (!isValidMcpTokenShape(token)) return 'invalid_token'
-  return constantTimeEqual(hashMcpToken(token), verifier) ? true : 'invalid_token'
+  if (!isValidApiTokenShape(token)) return 'invalid_token'
+  return constantTimeEqual(hashApiToken(token), verifier) ? true : 'invalid_token'
 }
 
-export function isMcpAuthConfigured(store: McpAuthStore): boolean {
+export function isApiAuthConfigured(store: ApiAuthStore): boolean {
   return Boolean(store.read()?.startsWith(VERIFIER_PREFIX))
 }
 
-export function mcpAuthFailureMessage(reason: McpAuthFailure): string {
+export function apiAuthFailureMessage(reason: ApiAuthFailure): string {
   if (reason === 'missing_token') {
-    return 'MCP auth token missing. Set HPM_MCP_TOKEN for stdio clients or send a Bearer token for HTTP.'
+    return 'API auth token missing. Send it as a Bearer token: Authorization: Bearer <token>.'
   }
   if (reason === 'unconfigured') {
-    return 'MCP auth token is not configured. Run `hpm mcp auth setup` and pass the printed token to your MCP client.'
+    return 'API auth token is not configured. Run `hpm api auth setup` and pass the printed token to your API client.'
   }
-  return 'MCP auth token is invalid. Check HPM_MCP_TOKEN or run `hpm mcp auth rotate`.'
+  return 'API auth token is invalid. Check the Bearer token you are sending or run `hpm api auth rotate`.'
 }
 
-export function mcpAuthStatus(enabled: boolean, store: McpAuthStore): McpAuthStatus {
+export function apiAuthStatus(enabled: boolean, store: ApiAuthStore): ApiAuthStatus {
   return {
     enabled,
-    configured: isMcpAuthConfigured(store),
+    configured: isApiAuthConfigured(store),
     backend: store.name,
   }
 }
 
-export function setupMcpAuth(store: McpAuthStore = createDefaultMcpAuthStore()): {
+export function setupApiAuth(store: ApiAuthStore = createDefaultApiAuthStore()): {
   token?: string
   alreadyConfigured: boolean
   backend: string
@@ -321,16 +321,16 @@ export function setupMcpAuth(store: McpAuthStore = createDefaultMcpAuthStore()):
   if (current?.startsWith(VERIFIER_PREFIX)) {
     return { alreadyConfigured: true, backend: store.name }
   }
-  return rotateMcpAuth(store)
+  return rotateApiAuth(store)
 }
 
-export function rotateMcpAuth(store: McpAuthStore = createDefaultMcpAuthStore()): {
+export function rotateApiAuth(store: ApiAuthStore = createDefaultApiAuthStore()): {
   token: string
   alreadyConfigured: false
   backend: string
 } {
-  const token = generateMcpToken()
-  store.write(hashMcpToken(token))
+  const token = generateApiToken()
+  store.write(hashApiToken(token))
   return { token, alreadyConfigured: false, backend: store.name }
 }
 
@@ -346,7 +346,7 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 function defaultVerifierPath(): string {
-  return join(homedir(), '.hyprmnesia', 'mcp-token.hash')
+  return join(homedir(), '.hyprmnesia', 'api-token.hash')
 }
 
 function commandExists(command: string): boolean {

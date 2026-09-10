@@ -152,7 +152,9 @@ export class HyprmnesiaReadStore {
       const version =
         this.db.query<{ user_version: number }, []>('PRAGMA user_version').get()?.user_version ?? 0
       if (version < 2) {
-        throw new ReadStoreError(`index database schema is v${version}; MCP requires v2 or newer`)
+        throw new ReadStoreError(
+          `index database schema is v${version}; the API requires v2 or newer`,
+        )
       }
       this.vecReady = version >= 3 && loadVecExtension(this.db)
     } catch (err) {

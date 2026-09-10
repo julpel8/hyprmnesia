@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { parseTimestamp, ReadStoreError } from '../mcp/read_store'
+import { parseTimestamp, ReadStoreError } from '../api/read_store'
 import {
   chunkSource,
   iso,
@@ -9,8 +9,8 @@ import {
   mimeForKind,
   resolveRowBlob,
   windowFromRow,
-} from '../mcp/read_store/format'
-import type { ChunkRow, SegmentRow, WindowPayload } from '../mcp/read_store/types'
+} from '../api/read_store/format'
+import type { ChunkRow, SegmentRow, WindowPayload } from '../api/read_store/types'
 import { cachedHostSources } from '../store/hosts'
 import { type IndexDb, openReadIndexDb } from '../store/index_db'
 import { expandHome } from '../util/paths'

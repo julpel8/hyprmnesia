@@ -84,19 +84,19 @@ test('embeddings engine can be disabled with noop', () => {
   expect(cfg.processing.embeddings.engine).toBe('noop')
 })
 
-test('MCP auth is enabled by default', () => {
+test('API auth is enabled by default', () => {
   const cfg = loadConfig(tmpConfig('{}'))
-  expect(cfg.mcp.auth.enabled).toBe(true)
+  expect(cfg.api.auth.enabled).toBe(true)
 })
 
-test('MCP auth can be explicitly disabled', () => {
-  const cfg = loadConfig(tmpConfig('{"mcp":{"auth":{"enabled":false}}}'))
-  expect(cfg.mcp.auth.enabled).toBe(false)
+test('API auth can be explicitly disabled', () => {
+  const cfg = loadConfig(tmpConfig('{"api":{"auth":{"enabled":false}}}'))
+  expect(cfg.api.auth.enabled).toBe(false)
 })
 
-test('malformed MCP auth config falls back to enabled', () => {
-  const cfg = loadConfig(tmpConfig('{"mcp":{"auth":{"enabled":"nope"}}}'))
-  expect(cfg.mcp.auth.enabled).toBe(true)
+test('malformed API auth config falls back to enabled', () => {
+  const cfg = loadConfig(tmpConfig('{"api":{"auth":{"enabled":"nope"}}}'))
+  expect(cfg.api.auth.enabled).toBe(true)
 })
 
 test('lossy blob formats default to webp screenshots and webm audio', () => {
@@ -130,7 +130,7 @@ test('v3 whisper config migrates back to parakeet with a backup', () => {
 
   saveConfig(cfg, path)
   const backups = readdirSync(dirname(path)).filter(
-    (name) => name.startsWith(`${basename(path)}.v3-to-v5.`) && name.endsWith('.bak'),
+    (name) => name.startsWith(`${basename(path)}.v3-to-v6.`) && name.endsWith('.bak'),
   )
   expect(backups).toHaveLength(1)
 })
@@ -155,6 +155,19 @@ test('a v4 config drops the sync and encryption blocks', () => {
   expect(cfg.schema_version).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
   expect((cfg as unknown as Record<string, unknown>).sync).toBeUndefined()
   expect((cfg.storage as unknown as Record<string, unknown>).encryption).toBeUndefined()
+})
+
+test('a v5 config renames the mcp block to api and drops transport', () => {
+  const cfg = loadConfig(
+    tmpConfig(
+      '{"schema_version":5,"mcp":{"transport":"http","bind":"127.0.0.1","port":4242,"auth":{"enabled":false}}}',
+    ),
+  )
+  expect(cfg.schema_version).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
+  expect((cfg as unknown as Record<string, unknown>).mcp).toBeUndefined()
+  expect(cfg.api.port).toBe(4242)
+  expect(cfg.api.auth.enabled).toBe(false)
+  expect((cfg.api as unknown as Record<string, unknown>).transport).toBeUndefined()
 })
 
 test('v1 noop transcription survives the v2 migration', () => {

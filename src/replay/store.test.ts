@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ReadStoreError } from '../mcp/read_store'
+import { ReadStoreError } from '../api/read_store'
 import { openChunkStore } from '../store/db'
 import { ReplayStore } from './store'
 

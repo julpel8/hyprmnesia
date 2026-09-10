@@ -1,6 +1,7 @@
-// Argument coercion/validation helpers shared by the MCP tool handlers. Each
-// reads loosely-typed JSON-RPC arguments and either returns a normalized value
-// or throws a ReadStoreError that the dispatcher turns into a tool error.
+// Argument coercion/validation helpers shared by the REST route handlers.
+// Each reads a loosely-typed query-string value and either returns a
+// normalized value or throws a ReadStoreError that the dispatcher turns into
+// a 400 response.
 import { ReadStoreError } from './read_store'
 
 export function asRecord(value: unknown): Record<string, unknown> {
@@ -10,7 +11,10 @@ export function asRecord(value: unknown): Record<string, unknown> {
 }
 
 export function boolArg(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback
+  if (typeof value === 'boolean') return value
+  if (value === 'true' || value === '1') return true
+  if (value === 'false' || value === '0') return false
+  return fallback
 }
 
 export function numberArg(value: unknown, fallback: number, min: number, max: number): number {

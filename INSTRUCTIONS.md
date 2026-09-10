@@ -233,7 +233,7 @@ ls ~/hyprmnesia-sync/$(hostname | tr 'A-Z' 'a-z')/data/screenshot/*/*/*/ | head
 ls -l ~/hyprmnesia-sync/*/index.db
 ```
 
-From another machine, an MCP search should return results carrying a `host` field
+From another machine, an API search should return results carrying a `host` field
 for each machine present in the folder.
 
 ### Warnings
@@ -258,7 +258,7 @@ bun run src/cli.ts logs       # tail the daemon log (default: last 10 + follow)
 bun run src/cli.ts stop       # stop the daemon
 bun run src/cli.ts status     # print daemon status
 bun run src/cli.ts status --json
-bun run src/cli.ts mcp        # run the read-only MCP stdio server
+bun run src/cli.ts api        # run the read-only REST API server
 ```
 
 After building:
@@ -271,69 +271,69 @@ bun run build                 # produces dist/hpm
 ./dist/hpm replay             # open the replay window (deep-link: --from --to)
 ./dist/hpm logs -n 50         # show last 50 log lines + follow
 ./dist/hpm status --json
-./dist/hpm mcp                # read-only MCP stdio server
+./dist/hpm api                # read-only REST API server
 ```
 
 `dist/hpm` is the user-facing entrypoint. Native helpers are built
 automatically into `dist/native/` and should not be launched directly.
 
-## MCP Server
+## API Server
 
-Hyprmnesia exposes a local **read-only** MCP server over stdio. It reads the
+Hyprmnesia exposes a local **read-only** REST API over HTTP. It reads the
 local database `~/.hyprmnesia/index.db` plus every other machine's database found
 under the shared storage root, never starts the tray, never starts the daemon, and
 does not write migrations, reindex data, delete captures, or return screenshot
 / audio bytes by default.
 
-Example MCP client config:
-
-```json
-{
-  "command": "hpm",
-  "args": ["mcp"]
-}
-```
-
 During development:
 
 ```sh
-bun run src/cli.ts mcp
-bun run src/cli.ts mcp --db ~/.hyprmnesia/index.db
-bun run src/cli.ts mcp --transport http --bind 127.0.0.1 --port 37373
+bun run src/cli.ts api
+bun run src/cli.ts api --db ~/.hyprmnesia/index.db
+bun run src/cli.ts api --bind 127.0.0.1 --port 37373
 ```
 
 `--db` reads that one database alone; without it, every machine in the shared
 storage root is read.
 
-Default MCP config:
+Default API config:
 
 ```yaml
-mcp:
-  transport: stdio # stdio | http
+api:
   bind: 127.0.0.1
   port: 37373
+  auth:
+    enabled: true
 ```
 
-`stdio` is the default transport for desktop MCP clients. `http` is available
-for local integrations at `POST /mcp`; until MCP auth lands, Hyprmnesia refuses
-non-local HTTP binds such as `0.0.0.0`.
+Hyprmnesia refuses non-local binds such as `0.0.0.0`. Auth is enabled by
+default; get a token with `hpm api auth setup` and send it as a Bearer header:
 
-Available tools:
+```sh
+TOKEN=$(hpm api auth setup | tail -1)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://127.0.0.1:37373/search?query=invoice'
+```
 
-| Tool | Purpose |
+Available routes:
+
+| Route | Purpose |
 | --- | --- |
-| `search` | FTS search over OCR text, window context, and transcript segments |
-| `timeline` | chronological chunks for a required `from` / `to` range |
-| `recall` | full chunk details plus linked transcript segments |
-| `get_transcript_segment` | one precise transcript segment, optionally with its parent chunk |
+| `GET /search` | FTS/semantic search over OCR text, window context, and transcript segments |
+| `GET /recent-activity` | grouped activity over a recent, short time window |
+| `GET /period-activity` | sessions and per-day aggregates over a required `from` / `to` range |
+| `GET /timeline` | chronological chunks for a required `from` / `to` range |
+| `GET /recall/:id` | full chunk details plus linked transcript segments |
+| `GET /transcript-segment/:id` | one precise transcript segment, optionally with its parent chunk |
 
 Common filters are `from`, `to`, `source` (`screen`, `mic`, `system`), `app`,
-`limit`, and `offset`. Times can be ISO strings or epoch milliseconds; ISO
-strings without a timezone are interpreted in the user's local timezone. Results
-include both UTC fields (`utc_*` / legacy `iso_*`) and local fields (`local_*`
-+ `timezone`); agents should use `local_*` when answering the user. `recall`
-only includes local `blob_path` metadata when `include_blob` is true; v1 does
-not stream screenshots or audio through MCP.
+`limit`, and `offset`, passed as query-string parameters. Times can be ISO
+strings or epoch milliseconds; ISO strings without a timezone are interpreted
+in the user's local timezone. Results include both UTC fields (`utc_*` /
+legacy `iso_*`) and local fields (`local_*` + `timezone`); agents should use
+`local_*` when answering the user. `recall` only includes local `blob_path`
+metadata when `include_blob=true`; v1 does not stream screenshots or audio
+through the API.
 
 ## Tray App
 
@@ -430,10 +430,11 @@ storage:
   path: ~/hyprmnesia-sync
   host_id: rpi5
   snapshot_interval_minutes: 5
-mcp:
-  transport: stdio
+api:
   bind: 127.0.0.1
   port: 37373
+  auth:
+    enabled: true
 ```
 
 `storage.path` is the shared Syncthing root, `storage.host_id` the name of
@@ -489,7 +490,7 @@ writes JSON logs.
 - [ ] Harden Parakeet ASR across Windows/macOS/Linux
 - [x] SQLite FTS5 query APIs over OCR + transcript segments
 - [ ] Encrypted at-rest blob storage
-- [x] Read-only MCP server exposing `search`, `timeline`, `recall`, segments
+- [x] Read-only REST API exposing `search`, `timeline`, `recall`, segments
 - [ ] macOS / Linux smoke testing
 
 ## License

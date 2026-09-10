@@ -21,7 +21,7 @@ export interface QueryFilters extends TimeRange {
   offset?: number
   includeEmpty?: boolean
   mode?: SearchMode
-  // Pre-computed query embedding (little-endian float32). Supplied by the MCP
+  // Pre-computed query embedding (little-endian float32). Supplied by the API
   // server when semantic/hybrid search is requested and the embedder is ready.
   queryVector?: Float32Array
 }

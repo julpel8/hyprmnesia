@@ -18,7 +18,7 @@ TryExec=@EXEC@
 Icon=hyprmnesia
 Terminal=false
 Categories=Utility;AudioVideo;Recorder;
-Keywords=memory;capture;screenshot;audio;recall;mcp;assistant;
+Keywords=memory;capture;screenshot;audio;recall;assistant;
 StartupNotify=false
 X-GNOME-UsesNotifications=true
 # Added only for the ~/.config/autostart copy (hpm autostart enable):

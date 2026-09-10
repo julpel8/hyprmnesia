@@ -1,5 +1,5 @@
 // Tests for buildActivityGroups — the grouping algorithm that powers the
-// `recent_activity` MCP tool. The algorithm has a lot of branches:
+// `recent_activity` route. The algorithm has a lot of branches:
 //   * window-key bucketing (URL > app+title > source fallback)
 //   * 30-second gap to start a new group
 //   * unwindowed audio attaches to an overlapping screen group, then falls

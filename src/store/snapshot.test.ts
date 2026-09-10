@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUIDv7 } from 'bun'
-import { HyprmnesiaReadStore } from '../mcp/read_store'
+import { HyprmnesiaReadStore } from '../api/read_store'
 import { openChunkStore } from './db'
 import { publishSnapshot } from './snapshot'
 

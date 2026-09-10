@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, watch } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { apiAuthStatus, createDefaultApiAuthStore, rotateApiAuth, setupApiAuth } from './api/auth'
 import { type Config, ensureDefaultConfig, loadConfig } from './config'
 import {
   clearStopRequest,
@@ -26,7 +27,6 @@ import {
   uninstallLauncher,
 } from './install/launcher'
 import { log } from './log'
-import { createDefaultMcpAuthStore, mcpAuthStatus, rotateMcpAuth, setupMcpAuth } from './mcp/auth'
 import { checkForUpdate, envOptOut, formatUpdateNotice, RELEASES_URL } from './update/check'
 import { VERSION } from './version'
 
@@ -144,8 +144,8 @@ usage:
   hpm stop               stop the running daemon
   hpm quit               stop the daemon and quit the tray icon
   hpm status [--json]    print daemon status
-  hpm mcp [flags]        run the read-only MCP server
-  hpm mcp auth <command> manage MCP local auth token
+  hpm api [flags]        run the read-only REST API server
+  hpm api auth <command> manage API local auth token
   hpm replay [--from <time> --to <time>]
                          open an interactive local replay window
   hpm ui [--no-open]     open the local Hyprmnesia web app (dashboard, search,
@@ -180,18 +180,17 @@ flags (for hpm/start):
   --no-system-audio      disable system audio capture only
   --data-dir <path>      override storage path
 
-flags (for hpm mcp):
+flags (for hpm api):
   --config <path>        config file (default: ~/.hyprmnesia/config.yaml)
   --db <path>            SQLite index path (default: ~/.hyprmnesia/index.db)
-  --transport <name>     MCP transport: stdio or http
   --bind <addr>          HTTP bind address (default: 127.0.0.1)
   --port <n>             HTTP port (default: 37373)
-  --no-auth              confirm running only when config mcp.auth.enabled=false
+  --no-auth              confirm running only when config api.auth.enabled=false
 
-commands (for hpm mcp auth):
-  setup                  create and print an MCP token once
-  status                 show MCP auth status without printing the token
-  rotate                 replace and print a new MCP token once
+commands (for hpm api auth):
+  setup                  create and print an API token once
+  status                 show API auth status without printing the token
+  rotate                 replace and print a new API token once
 
 flags (for hpm replay):
   --from <epoch_ms|iso>  replay start time (optional deep-link)
@@ -258,78 +257,81 @@ async function cmdCapture(flags: Record<string, string | boolean>) {
 }
 
 /**
- * Starts the read-only MCP server.
+ * Starts the read-only REST API server.
  *
- * Unlike normal runtime commands, MCP is a headless integration surface and
- * should not depend on tray or daemon state.
+ * Unlike normal runtime commands, the API is a headless integration surface
+ * and should not depend on tray or daemon state.
  */
-async function cmdMcp(flags: Record<string, string | boolean>, argv: string[]) {
-  const positionals = positionalArgs(argv, new Set(['config', 'db', 'transport', 'bind', 'port']))
+async function cmdApi(flags: Record<string, string | boolean>, argv: string[]) {
+  const positionals = positionalArgs(argv, new Set(['config', 'db', 'bind', 'port']))
   if (positionals[0] === 'auth') {
-    cmdMcpAuth(positionals.slice(1), flags)
+    cmdApiAuth(positionals.slice(1), flags)
     return
   }
 
   const configPath = typeof flags['config'] === 'string' ? flags['config'] : undefined
   const cfg = loadConfig(configPath)
-  applyMcpFlags(cfg, flags)
-  if (flags['no-auth'] && cfg.mcp.auth.enabled) {
-    console.error('mcp: --no-auth requires mcp.auth.enabled: false in config.yaml')
+  applyApiFlags(cfg, flags)
+  if (flags['no-auth'] && cfg.api.auth.enabled) {
+    console.error('api: --no-auth requires api.auth.enabled: false in config.yaml')
     process.exit(1)
   }
-  if (!cfg.mcp.auth.enabled && !flags['no-auth']) {
-    console.error('mcp: MCP auth is disabled in config.yaml; pass --no-auth to confirm')
+  if (!cfg.api.auth.enabled && !flags['no-auth']) {
+    console.error('api: API auth is disabled in config.yaml; pass --no-auth to confirm')
     process.exit(1)
   }
-  const { startMcpServer } = await import('./mcp/server')
-  await startMcpServer({
+  const { startApiServer } = await import('./api/server')
+  await startApiServer({
     dbPath: typeof flags['db'] === 'string' ? flags['db'] : undefined,
-    transport: cfg.mcp.transport,
-    bind: cfg.mcp.bind,
-    port: cfg.mcp.port,
+    bind: cfg.api.bind,
+    port: cfg.api.port,
     auth: {
-      enabled: cfg.mcp.auth.enabled,
+      enabled: cfg.api.auth.enabled,
     },
   })
 }
 
-function cmdMcpAuth(args: string[], flags: Record<string, string | boolean>): void {
+function cmdApiAuth(args: string[], flags: Record<string, string | boolean>): void {
   const command = args[0]
   const configPath = typeof flags['config'] === 'string' ? flags['config'] : undefined
   const cfg = loadConfig(configPath)
-  const store = createDefaultMcpAuthStore()
+  const store = createDefaultApiAuthStore()
 
   if (command === 'setup') {
-    const result = setupMcpAuth(store)
+    const result = setupApiAuth(store)
     if (result.alreadyConfigured) {
-      console.log('MCP auth token already configured.')
-      console.log('Run `hpm mcp auth rotate` to replace it.')
+      console.log('API auth token already configured.')
+      console.log('Run `hpm api auth rotate` to replace it.')
       console.log(`backend: ${result.backend}`)
       return
     }
-    console.error('MCP auth token created. Copy it into your MCP client env as HPM_MCP_TOKEN.')
+    console.error(
+      'API auth token created. Send it as a Bearer token: Authorization: Bearer <token>.',
+    )
     console.error(`backend: ${result.backend}`)
     console.log(result.token)
     return
   }
 
   if (command === 'status') {
-    const status = mcpAuthStatus(cfg.mcp.auth.enabled, store)
-    console.log(`MCP auth: ${status.enabled ? 'enabled' : 'disabled'}`)
+    const status = apiAuthStatus(cfg.api.auth.enabled, store)
+    console.log(`API auth: ${status.enabled ? 'enabled' : 'disabled'}`)
     console.log(`token: ${status.configured ? 'configured' : 'not configured'}`)
     console.log(`backend: ${status.backend}`)
     return
   }
 
   if (command === 'rotate') {
-    const result = rotateMcpAuth(store)
-    console.error('MCP auth token rotated. Copy it into your MCP client env as HPM_MCP_TOKEN.')
+    const result = rotateApiAuth(store)
+    console.error(
+      'API auth token rotated. Send it as a Bearer token: Authorization: Bearer <token>.',
+    )
     console.error(`backend: ${result.backend}`)
     console.log(result.token)
     return
   }
 
-  console.error(`unknown MCP auth command: ${command ?? '(missing)'}`)
+  console.error(`unknown API auth command: ${command ?? '(missing)'}`)
   console.error('expected: setup, status, or rotate')
   process.exit(1)
 }
@@ -384,25 +386,17 @@ async function cmdUi(flags: Record<string, string | boolean>) {
 }
 
 /**
- * Applies one-shot MCP transport overrides on top of persisted MCP config.
+ * Applies one-shot API bind/port overrides on top of persisted API config.
  */
-function applyMcpFlags(cfg: Config, flags: Record<string, string | boolean>) {
-  if (typeof flags['transport'] === 'string') {
-    const transport = flags['transport']
-    if (transport !== 'stdio' && transport !== 'http') {
-      console.error(`invalid MCP transport: ${transport} (expected stdio or http)`)
-      process.exit(1)
-    }
-    cfg.mcp.transport = transport
-  }
-  if (typeof flags['bind'] === 'string') cfg.mcp.bind = flags['bind']
+function applyApiFlags(cfg: Config, flags: Record<string, string | boolean>) {
+  if (typeof flags['bind'] === 'string') cfg.api.bind = flags['bind']
   if (typeof flags['port'] === 'string') {
     const port = Number(flags['port'])
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      console.error(`invalid MCP port: ${flags['port']}`)
+      console.error(`invalid API port: ${flags['port']}`)
       process.exit(1)
     }
-    cfg.mcp.port = port
+    cfg.api.port = port
   }
 }
 
@@ -787,8 +781,8 @@ switch (cmd) {
   case '_smoke-release':
     await cmdSmokeRelease()
     break
-  case 'mcp':
-    await cmdMcp(flags, rest)
+  case 'api':
+    await cmdApi(flags, rest)
     break
   case 'replay':
     ensureTray()

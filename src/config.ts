@@ -51,8 +51,7 @@ export interface EngineConfig {
   options?: Record<string, unknown>
 }
 
-interface McpConfig {
-  transport: 'stdio' | 'http'
+interface ApiConfig {
   bind: string
   port: number
   auth: {
@@ -92,11 +91,11 @@ export interface Config {
     embeddings: EngineConfig
   }
   storage: StorageConfig
-  mcp: McpConfig
+  api: ApiConfig
   update: UpdateConfig
 }
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 5
+export const CURRENT_CONFIG_SCHEMA_VERSION = 6
 
 // Storage layout before the multi-machine split. A config still pointing there
 // would silently keep writing outside the shared tree, so we refuse it instead
@@ -182,8 +181,7 @@ const defaultConfig: Config = {
     host_id: defaultHostId(),
     snapshot_interval_minutes: 5,
   },
-  mcp: {
-    transport: 'stdio',
+  api: {
     bind: '127.0.0.1',
     port: 37373,
     auth: {
@@ -292,6 +290,7 @@ function migrateConfig(parsed: DeepPartial<Config>, path: string): void {
   if (version <= 2) migrateConfigV2ToV3(parsed)
   if (version <= 3) migrateConfigV3ToV4(parsed)
   if (version <= 4) migrateConfigV4ToV5(parsed)
+  if (version <= 5) migrateConfigV5ToV6(parsed)
 }
 
 // v0 carried a legacy `storage.encryption.enabled` flag. Encryption is gone, so
@@ -365,6 +364,19 @@ function migrateConfigV4ToV5(parsed: DeepPartial<Config>): void {
   delete raw.sync
   const storage = raw.storage as Record<string, unknown> | undefined
   if (storage) delete storage.encryption
+  parsed.schema_version = 5
+}
+
+// MCP is gone; the `mcp` config block becomes `api`, dropping the `transport`
+// field (REST is HTTP-only, so there is no transport to choose).
+function migrateConfigV5ToV6(parsed: DeepPartial<Config>): void {
+  const raw = parsed as Record<string, unknown>
+  const mcp = raw.mcp as Record<string, unknown> | undefined
+  if (mcp) {
+    delete mcp.transport
+    raw.api = mcp
+    delete raw.mcp
+  }
   parsed.schema_version = CURRENT_CONFIG_SCHEMA_VERSION
 }
 
@@ -459,17 +471,15 @@ function normalizeConfig(config: Config): Config {
     }
   }
 
-  if (config.mcp.transport !== 'stdio' && config.mcp.transport !== 'http')
-    config.mcp.transport = 'stdio'
-  if (typeof config.mcp.bind !== 'string' || config.mcp.bind.trim() === '')
-    config.mcp.bind = '127.0.0.1'
-  config.mcp.bind = config.mcp.bind.trim()
-  config.mcp.port = clampInt(config.mcp.port, 1, 65535, defaultConfig.mcp.port)
-  if (!config.mcp.auth || typeof config.mcp.auth !== 'object') {
-    config.mcp.auth = { ...defaultConfig.mcp.auth }
+  if (typeof config.api.bind !== 'string' || config.api.bind.trim() === '')
+    config.api.bind = '127.0.0.1'
+  config.api.bind = config.api.bind.trim()
+  config.api.port = clampInt(config.api.port, 1, 65535, defaultConfig.api.port)
+  if (!config.api.auth || typeof config.api.auth !== 'object') {
+    config.api.auth = { ...defaultConfig.api.auth }
   }
-  if (typeof config.mcp.auth.enabled !== 'boolean') {
-    config.mcp.auth.enabled = defaultConfig.mcp.auth.enabled
+  if (typeof config.api.auth.enabled !== 'boolean') {
+    config.api.auth.enabled = defaultConfig.api.auth.enabled
   }
 
   if (!config.update || typeof config.update !== 'object') {
@@ -495,7 +505,7 @@ export function ensureDefaultConfig(path?: string): string {
 }
 
 function configToYaml(config: Config = defaultConfig): string {
-  return `# Hyprmnesia configuration\n# Changes apply after restarting the related daemon or MCP server.\n\n${stringifyYaml(config)}`
+  return `# Hyprmnesia configuration\n# Changes apply after restarting the related daemon or API server.\n\n${stringifyYaml(config)}`
 }
 
 function resolveConfigPath(path?: string): string {

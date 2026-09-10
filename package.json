@@ -1,7 +1,7 @@
 {
   "name": "hyprmnesia",
   "version": "0.7.0",
-  "description": "Personal memory of everything you've seen and heard, queryable via MCP.",
+  "description": "Personal memory of everything you've seen and heard, queryable via a REST API.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "private": true,

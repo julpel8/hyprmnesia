@@ -56,7 +56,7 @@ const NATIVE_BINS: readonly string[] = [
 ]
 const NATIVE_DEST_DIR = resolve('./dist/native')
 
-// Pinned sqlite-vec loadable extension. Powers semantic/hybrid MCP search; when
+// Pinned sqlite-vec loadable extension. Powers semantic/hybrid search; when
 // it can't be fetched the index simply stays FTS5-only, so this step is
 // best-effort and never fails the build.
 const SQLITE_VEC_VERSION = 'v0.1.6'
