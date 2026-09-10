@@ -264,6 +264,52 @@ bun run build                 # produces dist/hpm
 `dist/hpm` is the user-facing entrypoint. Native helpers are built
 automatically into `dist/native/` and should not be launched directly.
 
+## REST API
+
+`hpm api` serves the read API on 127.0.0.1 for scripts and agents. It runs until
+you stop it, opens no browser, and needs no token: the port is bound to loopback
+only, and any process on this machine already has the index file itself.
+
+```sh
+hpm api                # serves http://127.0.0.1:41890
+hpm api --port 41999   # somewhere else
+hpm api url            # print the address of the running server
+```
+
+The address is also written to `~/.hyprmnesia/api.json` while the server runs
+and removed when it stops, so a caller can find it without being told:
+
+```sh
+BASE=$(hpm api url)
+curl -s "$BASE/api/search?q=facture&limit=5"
+```
+
+Endpoints:
+
+| route | what it returns |
+| --- | --- |
+| `GET /api/ping` | `{"ok":true}`, a liveness check |
+| `GET /api/status` | daemon state and per-source capture status |
+| `GET /api/search?q=&limit=&mode=` | full-text, semantic or hybrid search over screen text and transcripts |
+| `GET /api/timeline?from=&to=` | captured chunks in a time range |
+| `GET /api/activity?from=&to=` | chunks grouped into sessions by window and time |
+| `GET /api/period-activity?from=&to=` | day and session summaries with excerpts |
+| `GET /api/range` | the oldest and newest capture times on record |
+| `GET /api/manifest?from=&to=` | everything replay needs for a range, transcript segments included |
+| `GET /api/hosts` | the machines present in the shared storage tree |
+| `GET /api/logs` | recent daemon log lines |
+| `GET /api/events` | server-sent events: live status, audio levels, transcript segments |
+
+Times are epoch milliseconds or ISO strings. Every timestamped response carries
+both a local and a UTC rendering, so a caller never has to guess the timezone.
+
+The same routes back the local web app, which is why `/api/config` and the
+`/api/daemon/*` routes exist too. Those write, and a write from a browser page
+on another origin is refused; `curl` sends no `Origin` header and is allowed.
+
+This replaced the MCP server. There is no protocol to speak, no tool schema to
+load, and no separate process to run: an agent curls the routes above.
+
 ## Tray App
 
 The tray app lives next to the system clock and supervises the capture daemon.

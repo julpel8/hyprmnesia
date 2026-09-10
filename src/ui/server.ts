@@ -13,6 +13,8 @@ import {
   setReplayTranscriptionSuppression,
 } from '../core/transcription_suppression'
 import type { ReplayBlobRef } from '../replay/store'
+import { apiAddressPath } from '../util/paths'
+import { clearApiAddress, writeApiAddress } from './address'
 import { handleCaptureRequest } from './api/capture'
 import { handleConfigRequest } from './api/config'
 import { handleDaemonRequest } from './api/daemon'
@@ -30,6 +32,13 @@ export interface UiServerOptions {
   // 'replay' deep-links the replay view; 'ui' opens the dashboard default. In
   // Phase 1 both serve the same placeholder client — only the opened URL differs.
   view?: 'replay' | 'ui'
+  // A fixed port instead of an ephemeral one. `hpm api` uses it so a caller can
+  // hardcode the address; the UI keeps taking whatever port is free.
+  port?: number
+  // Serve the REST API for scripts and agents rather than a browser session:
+  // no browser is opened, the address is published to a file, and the server
+  // keeps running instead of shutting down when nothing is polling it.
+  serveApi?: boolean
 }
 
 function openUrl(url: string): void {
@@ -59,7 +68,7 @@ export async function startUiServer(options: UiServerOptions): Promise<void> {
 
   const server = Bun.serve({
     hostname: '127.0.0.1',
-    port: 0,
+    port: options.port ?? 0,
     async fetch(req) {
       const url = new URL(req.url)
       if (!isSameOriginRequest(req, selfOrigin))
@@ -145,7 +154,13 @@ export async function startUiServer(options: UiServerOptions): Promise<void> {
     initialParams.set('to', String(options.to))
   }
   const url = `http://127.0.0.1:${port}/?${initialParams.toString()}`
-  console.log(`${view}: ${url}`)
+  if (options.serveApi) {
+    writeApiAddress(port)
+    console.log(`api: ${selfOrigin}`)
+    console.log(`address published to ${apiAddressPath()}`)
+  } else {
+    console.log(`${view}: ${url}`)
+  }
   if (options.from !== undefined && options.to !== undefined) {
     console.log(`range: ${options.from} -> ${options.to}`)
   }
@@ -164,12 +179,16 @@ export async function startUiServer(options: UiServerOptions): Promise<void> {
       if (done) return
       done = true
       clearInterval(staleTimer)
+      if (options.serveApi) clearApiAddress()
       clearReplayTranscriptionSuppression({ owner: ownerId })
       orchestrator.dispose?.()
       server.stop(true)
       resolve()
     }
     const staleTimer = setInterval(() => {
+      // The API server has no browser to watch, so nothing here can decide it
+      // has been abandoned. It runs until it is stopped.
+      if (options.serveApi) return
       const idleMs = Date.now() - lastPing
       // Once a real browser has pinged, 15s of silence means it's gone.
       // Otherwise only auto-give-up when we actually tried to open one — `--no-open`

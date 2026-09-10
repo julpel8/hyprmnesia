@@ -32,3 +32,6 @@ export interface StoragePaths {
 }
 export const defaultWaylandTokenPath = () => join(homedir(), '.hyprmnesia', 'wayland-portal-token')
 export const updateCheckPath = () => join(homedir(), '.hyprmnesia', 'update-check.json')
+// Written while `hpm api` is serving and removed when it stops, so a script or
+// an agent can find the address without being told the port.
+export const apiAddressPath = () => join(homedir(), '.hyprmnesia', 'api.json')

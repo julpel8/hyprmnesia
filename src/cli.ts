@@ -151,6 +151,9 @@ usage:
                          open an interactive local replay window
   hpm ui [--no-open]     open the local Hyprmnesia web app (dashboard, search,
                          settings, live transcript)
+  hpm api [--port N]     serve the REST API on 127.0.0.1 for scripts and agents
+                         (default port 41890); runs until stopped
+  hpm api url            print the address of the running API server
   hpm launcher install   add a desktop-launcher entry for this binary
                          (Linux .desktop); the .deb already installs one, so
                          this is for the portable build
@@ -286,6 +289,55 @@ async function cmdUi(flags: Record<string, string | boolean>) {
     await startUiServer({
       dbPath: typeof flags['db'] === 'string' ? flags['db'] : undefined,
       openBrowser: !flags['no-open'],
+      view: 'ui',
+    })
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+}
+
+// Default port for `hpm api`. Fixed so a script can hardcode the address; the
+// browser UI keeps taking an ephemeral one, since two of them may run at once.
+const DEFAULT_API_PORT = 41890
+
+async function cmdApi(args: string[], flags: Record<string, string | boolean>) {
+  const { readApiAddress } = await import('./ui/address')
+
+  // `hpm api url` is the one-liner a script uses to find a running server.
+  if (args[0] === 'url') {
+    const address = readApiAddress()
+    if (!address) {
+      console.error('no API server is running; start one with `hpm api`')
+      process.exit(1)
+    }
+    console.log(address.url)
+    return
+  }
+  if (args.length > 0) {
+    console.error(`api: unknown argument '${args[0]}'`)
+    process.exit(1)
+  }
+
+  const port = typeof flags['port'] === 'string' ? Number(flags['port']) : DEFAULT_API_PORT
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(`api: invalid port '${String(flags['port'])}'`)
+    process.exit(1)
+  }
+
+  const running = readApiAddress()
+  if (running) {
+    console.error(`api: already serving on ${running.url} (pid ${running.pid})`)
+    process.exit(1)
+  }
+
+  const { startUiServer } = await import('./ui/server')
+  try {
+    await startUiServer({
+      dbPath: typeof flags['db'] === 'string' ? flags['db'] : undefined,
+      openBrowser: false,
+      serveApi: true,
+      port,
       view: 'ui',
     })
   } catch (err) {
@@ -709,6 +761,9 @@ switch (cmd) {
   case 'ui':
     ensureTray()
     await cmdUi(flags)
+    break
+  case 'api':
+    await cmdApi(positionalArgs(rest, new Set(['port', 'db'])), flags)
     break
   case 'launcher':
     cmdLauncher(positionalArgs(rest, new Set()))
