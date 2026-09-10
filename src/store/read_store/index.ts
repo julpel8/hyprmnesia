@@ -134,6 +134,12 @@ export class HyprmnesiaReadStore {
   readonly dbPath: string
   readonly hostId: string
   readonly hostDir: string
+  // SQL fragment restricting transcript segments to the primary engine's ones.
+  // Another machine's snapshot may predate the `role` column, and naming a
+  // column that does not exist is a query error rather than a null, so the
+  // filter is decided per database when it is opened. A database without the
+  // column only ever held primary segments anyway.
+  private readonly primaryOnly: (alias: string) => string
 
   constructor(options: string | ReadStoreOptions) {
     const opts = typeof options === 'string' ? { dbPath: options } : options
@@ -156,6 +162,11 @@ export class HyprmnesiaReadStore {
         )
       }
       this.vecReady = version >= 3 && loadVecExtension(this.db)
+      const hasRole = this.db
+        .query<{ name: string }, []>('PRAGMA table_info(transcript_segments)')
+        .all()
+        .some((column) => column.name === 'role')
+      this.primaryOnly = hasRole ? (alias) => `${alias}.role = 'primary'` : () => '1 = 1'
     } catch (err) {
       if (err instanceof ReadStoreError) throw err
       throw new ReadStoreError(`failed to open read-only index database: ${String(err)}`)
@@ -409,7 +420,7 @@ export class HyprmnesiaReadStore {
         `
         SELECT c.*,
                (SELECT COUNT(*) FROM transcript_segments s
-                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
+                 WHERE s.chunk_id = c.id AND ${this.primaryOnly('s')}) AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -419,7 +430,7 @@ export class HyprmnesiaReadStore {
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
             OR EXISTS (SELECT 1 FROM transcript_segments sx
-                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
+                       WHERE sx.chunk_id = c.id AND ${this.primaryOnly('sx')})
           )
         ORDER BY at ASC
         LIMIT $limit OFFSET $offset
@@ -449,7 +460,7 @@ export class HyprmnesiaReadStore {
         `
         SELECT c.*,
                (SELECT COUNT(*) FROM transcript_segments s
-                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
+                 WHERE s.chunk_id = c.id AND ${this.primaryOnly('s')}) AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -464,7 +475,7 @@ export class HyprmnesiaReadStore {
             $include_empty = 1
             OR COALESCE(c.text, '') <> ''
             OR EXISTS (SELECT 1 FROM transcript_segments sx
-                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
+                       WHERE sx.chunk_id = c.id AND ${this.primaryOnly('sx')})
           )
         ORDER BY c.at DESC
         LIMIT $limit
@@ -518,7 +529,7 @@ export class HyprmnesiaReadStore {
         `
         SELECT c.*,
                (SELECT COUNT(*) FROM transcript_segments s
-                 WHERE s.chunk_id = c.id AND s.role = 'primary') AS segment_count
+                 WHERE s.chunk_id = c.id AND ${this.primaryOnly('s')}) AS segment_count
         FROM chunks c
         WHERE c.at >= $from
           AND c.at <= $to
@@ -531,7 +542,7 @@ export class HyprmnesiaReadStore {
           AND (
             COALESCE(c.text, '') <> ''
             OR EXISTS (SELECT 1 FROM transcript_segments sx
-                       WHERE sx.chunk_id = c.id AND sx.role = 'primary')
+                       WHERE sx.chunk_id = c.id AND ${this.primaryOnly('sx')})
           )
         ORDER BY c.at ASC
         LIMIT $limit
@@ -550,7 +561,7 @@ export class HyprmnesiaReadStore {
         FROM transcript_segments
         WHERE start_at >= $from
           AND start_at <= $to
-          AND role = 'primary'
+          AND ${this.primaryOnly('transcript_segments')}
           AND COALESCE(text, '') <> ''
         ORDER BY start_at ASC
         LIMIT $limit
