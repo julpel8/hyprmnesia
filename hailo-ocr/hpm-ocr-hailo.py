@@ -16,8 +16,8 @@ Models are Hailo-8 HEF files from the official hailo-ai/hailo-apps
   HPM_OCR_DET  default ~/.hyprmnesia/ocr-models/ocr_det.hef   (544x960x3 -> heat)
   HPM_OCR_REC  default ~/.hyprmnesia/ocr-models/ocr.hef      (48x320x3 -> CTC)
 
-The recognition vocabulary is 97 pure-ASCII characters; accented text comes
-out without accents.
+The recognition vocabulary is a 96-entry pure-ASCII set (95 printable
+characters + the blank token); accented text comes out without accents.
 
 Image strategy (measured on a 4K screen capture, see the 2026-09-11 note):
 the detection model is run on exact-size 960x544 tiles with 64 px overlap,
@@ -52,18 +52,17 @@ DEFAULT_MIN_CONF = 0.5
 # 6.67 of the 48x320 input, with a margin.
 MAX_RATIO = 5.5
 
-# The 97-entry vocabulary of the recognizer (CTC decode order). Index 0 is the
-# blank token. Pure ASCII: digits, punctuation, A-Z, a-z, space.
+# The 96-entry vocabulary of the recognizer (CTC decode order), verbatim from
+# hailo_apps/python/standalone_apps/paddle_ocr/paddle_ocr_utils.py. Index 0 is
+# the blank token. Pure ASCII: digits, punctuation, A-Z, a-z, space.
 CHARACTERS = [
-    "blank", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    ":", ";", " ", "?", "@",
-    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N",
-    "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-    "[", "\\", "]", "^", "_", "`",
-    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n",
-    "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-    "{", "|", "}", "~", "!", '"', "#", "$", "%", "&", "'",
-    "(", ")", "*", "+", ",", "-", ".", "/", " ", " ",
+    "blank", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=",
+    ">", "?", "@", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\",
+    "]", "^", "_", "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+    "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "{",
+    "|", "}", "~", "!", '"', "#", "$", "%", "&", "'", "(", ")", "*", "+", ",",
+    "-", ".", "/", " ", " ",
 ]
 
 

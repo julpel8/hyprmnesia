@@ -97,7 +97,7 @@ processing:
 
 Check the NPU is visible with `hailortcli scan` and `ls /dev/hailo0`. The
 worker starts with the daemon; `hpm logs` shows its timing line per frame.
-Known limitation: the recognition vocabulary is 97 ASCII characters, so
+Known limitation: the recognition vocabulary is a 96-entry ASCII set, so
 accented text comes back without accents.
 
 ## OCR on the CPU (RapidOCR)

@@ -20,6 +20,10 @@ class HailoInfer:
         params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
         params.group_id = "SHARED"
         vdevice = VDevice(params)
+        # Keep the VDevice alive for the whole session: destroying it shuts
+        # down the shared scheduler, which later makes run_async fail with
+        # "Frame accumulator is supported only when scheduler is enabled".
+        self.target = vdevice
         self.hef = HEF(hef_path)
         self.infer_model = vdevice.create_infer_model(hef_path)
         self.infer_model.set_batch_size(batch_size)

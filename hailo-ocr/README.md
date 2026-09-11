@@ -54,7 +54,8 @@ Verify the NPU is visible: `hailortcli scan` and `ls /dev/hailo0`.
 
 ## Known limitations
 
-- The recognition vocabulary is 97 ASCII characters: no accents.
+- The recognition vocabulary is a 96-entry ASCII set (95 printable
+  characters + blank): no accents.
 - Spaces are dropped between some words; `l`/`1` and `i`/`l` are confused.
   Fine for full-text search, not for faithful transcription.
 - Measured on a 4K capture: ~2.7 s per frame (22 text lines), ~5.9 s on a
