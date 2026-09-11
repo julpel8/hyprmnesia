@@ -88,3 +88,38 @@ await copyFile(resolve('./hailo-ocr/hpm-ocr-hailo.py'), resolve(NATIVE_DEST_DIR,
 await copyFile(resolve('./hailo-ocr/hailo_infer.py'), resolve(NATIVE_DEST_DIR, 'hailo_infer.py'))
 await copyFile(resolve('./hailo-ocr/db_postprocess.py'), resolve(NATIVE_DEST_DIR, 'db_postprocess.py'))
 
+// The RapidOCR worker ships the same way; it runs on the CPU and is picked
+// up by the rapidocr OCR engine, which stays not-ready wherever rapidocr_*
+// is not installed in the configured python env.
+await copyFile(
+  resolve('./rapidocr-ocr/hpm-ocr-rapid.py'),
+  resolve(NATIVE_DEST_DIR, 'hpm-ocr-rapid.py'),
+)
+
+await fetchSqliteVec()
+
+console.log(`built dist/hpm with native helpers: ${NATIVE_BINS.join(', ')}`)
+
+async function fetchSqliteVec(): Promise<void> {
+  const dest = resolve(NATIVE_DEST_DIR, SQLITE_VEC_LIB)
+  if (existsSync(dest)) return
+  const arch = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x86_64' : undefined
+  if (!arch) {
+    console.warn(`sqlite-vec: unsupported arch ${process.arch}; skipping`)
+    return
+  }
+  const platform = `linux-${arch}`
+  const asset = `sqlite-vec-${SQLITE_VEC_VERSION.slice(1)}-loadable-${platform}.tar.gz`
+  const url = `https://github.com/asg017/sqlite-vec/releases/download/${SQLITE_VEC_VERSION}/${asset}`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const tmp = resolve('./dist', asset)
+    await Bun.write(tmp, await res.arrayBuffer())
+    await $`tar -xzf ${tmp} -C ${NATIVE_DEST_DIR} ${SQLITE_VEC_LIB}`
+    await rm(tmp, { force: true })
+    console.log(`fetched sqlite-vec ${SQLITE_VEC_VERSION} (${SQLITE_VEC_LIB})`)
+  } catch (err) {
+    console.warn(`sqlite-vec: download failed (${String(err)}); semantic search disabled`)
+  }
+}

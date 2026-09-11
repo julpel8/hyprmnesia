@@ -194,9 +194,9 @@ export function settingsFields(config: Config): SettingField[] {
       label: 'OCR engine',
       path: ['processing', 'ocr', 'engine'],
       kind: 'enum',
-      choices: ['auto', 'tesseract', 'noop', 'hailo'],
+      choices: ['auto', 'tesseract', 'noop', 'hailo', 'rapidocr'],
       hint:
-        'screen text engine; hailo needs the NPU and its HEF models',
+        'screen text engine; hailo needs the NPU, rapidocr needs rapidocr_openvino or rapidocr_onnxruntime in a python env',
     },
     {
       label: 'OCR language',
@@ -211,14 +211,23 @@ export function settingsFields(config: Config): SettingField[] {
       step: 0.5,
       min: 0.5,
       max: 4,
-      hint: 'hailo: upscale factor before OCR; 1 on large screens, 2 on small ones',
+      hint: 'hailo/rapidocr: resize factor before OCR; 1 on large screens, 2 on small ones',
     },
     {
       label: 'OCR python',
       path: ['processing', 'ocr', 'options', 'python'],
       kind: 'text',
       hint:
-        'hailo: python interpreter that runs the worker (absolute path to a venv python or plain python3)',
+        'rapidocr/hailo: python interpreter that runs the worker (absolute path to a venv python or plain python3)',
+    },
+    {
+      label: 'OCR det size',
+      path: ['processing', 'ocr', 'options', 'det_limit_side_len'],
+      kind: 'number',
+      step: 128,
+      min: 320,
+      max: 4096,
+      hint: 'rapidocr: longest side (px) fed to the text detector; smaller = faster, bigger = finer text',
     },
     {
       label: 'Audio device',

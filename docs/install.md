@@ -100,6 +100,43 @@ worker starts with the daemon; `hpm logs` shows its timing line per frame.
 Known limitation: the recognition vocabulary is 97 ASCII characters, so
 accented text comes back without accents.
 
+## OCR on the CPU (RapidOCR)
+
+`engine: rapidocr` runs the same PaddleOCR models as the Hailo engine, but on
+the CPU via an OpenVINO or onnxruntime backend. On a dense 1920-wide screen
+capture it takes about 3 s per frame (OpenVINO backend) versus about 14 s for
+Tesseract at 2560 wide, so it keeps up with the 5 s capture pace on a modern
+laptop. The PaddleOCR models (det/rec/cls) ship inside the `rapidocr_*` wheel,
+so there is nothing to download.
+
+The worker is a small Python script, so it needs a Python interpreter with the
+backend installed. A dedicated venv is the clean setup:
+
+```sh
+python3 -m venv ~/.local/share/hpm-ocr
+~/.local/share/hpm-ocr/bin/pip install 'rapidocr-openvino==1.2.3' 'openvino<2026'
+```
+
+(`openvino<2026` keeps the `openvino.runtime` namespace that rapidocr imports;
+it is removed in 2026.0.) Then point the daemon at that interpreter and pick
+the engine in `~/.hyprmnesia/config.yaml`:
+
+```yaml
+processing:
+  ocr:
+    engine: rapidocr
+    options:
+      python: ~/.local/share/hpm-ocr/bin/python  # or set HPM_OCR_PYTHON
+      # backend: openvino      # auto (default), openvino, or onnxruntime
+      # det_limit_side_len: 1280  # detector input size; smaller = faster
+```
+
+The worker is spawned by the daemon and loads the models once at startup;
+`hpm logs` prints the chosen backend and a per-frame timing line. Known
+limitation: the recognition vocabulary is the Chinese PP-OCRv3 dictionary, so
+accented Latin text comes back without accents, like the Hailo engine. Fine
+for full-text search, not for faithful transcription.
+
 ## Session requirement
 
 Screen capture requires a **Wayland** session. It goes through the
@@ -152,3 +189,7 @@ a custom location, set `processing.ocr.options.binary` in
 `engine: hailo`, check that `/dev/hailo0` exists and that the two `.hef`
 models are where `processing.ocr.options.det_model` / `rec_model` point (by
 default `~/.hyprmnesia/ocr-models/`); `hpm logs` prints the worker's error.
+With `engine: rapidocr`, check that `processing.ocr.options.python` points at
+an interpreter that has `rapidocr_openvino` or `rapidocr_onnxruntime`
+installed; the daemon logs the worker's fatal line with the reason (typically
+a missing backend).
