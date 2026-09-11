@@ -69,6 +69,37 @@ bun run build
 `dist/hpm` is the user-facing entry point. Native helpers are built
 automatically into `dist/native/` and should not be launched directly.
 
+## OCR on a Hailo NPU (Raspberry Pi 5 + Hailo-8)
+
+The default OCR engine (Tesseract) takes more than a capture interval per
+frame on the Pi, so the OCR queue lags forever. A Hailo-8 HAT runs the
+PaddleOCR pipeline on the NPU instead. Full notes, including the measured
+limits, live in [`hailo-ocr/README.md`](../hailo-ocr/README.md).
+
+```sh
+# driver + runtime + python binding (Raspberry Pi repository)
+sudo apt install hailo-all
+# OCR pipeline dependencies
+sudo apt install python3-shapely python3-pyclipper
+# compiled PaddleOCR models for the Hailo-8
+mkdir -p ~/.hyprmnesia/ocr-models && cd ~/.hyprmnesia/ocr-models
+wget https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/hefs/h8/ocr_det.hef
+wget https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/hefs/h8/ocr.hef
+```
+
+Then set the engine in `~/.hyprmnesia/config.yaml` and restart the daemon:
+
+```yaml
+processing:
+  ocr:
+    engine: hailo
+```
+
+Check the NPU is visible with `hailortcli scan` and `ls /dev/hailo0`. The
+worker starts with the daemon; `hpm logs` shows its timing line per frame.
+Known limitation: the recognition vocabulary is 97 ASCII characters, so
+accented text comes back without accents.
+
 ## Session requirement
 
 Screen capture requires a **Wayland** session. It goes through the
@@ -117,4 +148,7 @@ print a server name.
 **Screenshots are captured but OCR text is empty.**
 Confirm Tesseract is installed with `tesseract --version`. If it is installed in
 a custom location, set `processing.ocr.options.binary` in
-`~/.hyprmnesia/config.yaml` to the absolute binary path.
+`~/.hyprmnesia/config.yaml` to the absolute binary path. With
+`engine: hailo`, check that `/dev/hailo0` exists and that the two `.hef`
+models are where `processing.ocr.options.det_model` / `rec_model` point (by
+default `~/.hyprmnesia/ocr-models/`); `hpm logs` prints the worker's error.

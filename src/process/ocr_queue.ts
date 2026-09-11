@@ -54,6 +54,7 @@ export class OcrQueue {
     this.running = false
     this.wake?.()
     await this.loopDone?.catch(() => {})
+    await this.engine.close?.()
   }
 
   private async loop(): Promise<void> {

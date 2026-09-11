@@ -194,14 +194,31 @@ export function settingsFields(config: Config): SettingField[] {
       label: 'OCR engine',
       path: ['processing', 'ocr', 'engine'],
       kind: 'enum',
-      choices: ['auto', 'tesseract', 'noop'],
-      hint: 'screen text engine',
+      choices: ['auto', 'tesseract', 'noop', 'hailo'],
+      hint:
+        'screen text engine; hailo needs the NPU and its HEF models',
     },
     {
       label: 'OCR language',
       path: ['processing', 'ocr', 'options', 'lang'],
       kind: 'text',
       hint: 'tesseract lang, e.g. eng/fra',
+    },
+    {
+      label: 'OCR scale',
+      path: ['processing', 'ocr', 'options', 'scale'],
+      kind: 'number',
+      step: 0.5,
+      min: 0.5,
+      max: 4,
+      hint: 'hailo: upscale factor before OCR; 1 on large screens, 2 on small ones',
+    },
+    {
+      label: 'OCR python',
+      path: ['processing', 'ocr', 'options', 'python'],
+      kind: 'text',
+      hint:
+        'hailo: python interpreter that runs the worker (absolute path to a venv python or plain python3)',
     },
     {
       label: 'Audio device',

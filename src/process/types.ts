@@ -4,6 +4,9 @@ export interface OcrEngine {
   readonly name: string
   ready(): Promise<boolean>
   process(image: Buffer): Promise<string>
+  // Engines that keep a worker process alive stop it here; OcrQueue calls it
+  // on shutdown. Spawn-per-image engines (tesseract) have nothing to stop.
+  close?(): Promise<void>
 }
 
 export interface PcmAudioFrame {
