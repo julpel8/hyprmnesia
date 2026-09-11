@@ -1,5 +1,6 @@
 import type { EngineConfig } from '../../config'
 import type { OcrEngine } from '../types'
+import { NoopOcr } from './noop'
 import { TesseractOcr, type TesseractOptions } from './tesseract'
 
 function tesseractOptions(opts: Record<string, unknown>): TesseractOptions {
@@ -11,9 +12,10 @@ function tesseractOptions(opts: Record<string, unknown>): TesseractOptions {
 
 export function makeOcr(cfg: EngineConfig): OcrEngine {
   const opts = cfg.options ?? {}
-  switch (
-    cfg.engine // plus que tesseract avec linux, mais on peut ajouter d'autres moteurs plus tard...
-  ) {
+  switch (cfg.engine) {
+    // Explicitly disables OCR: screenshots are stored without text.
+    case 'noop':
+      return new NoopOcr()
     default:
       return new TesseractOcr(tesseractOptions(opts))
   }
